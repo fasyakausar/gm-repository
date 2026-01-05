@@ -511,249 +511,397 @@ class GETEmployee(http.Controller):
         except Exception as e:
             return serialize_error_response(str(e))
 
-class PaymentAPI(http.Controller):
-    @http.route(['/api/payment_invoice/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def get_payment_invoices(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+from odoo import http
+from odoo.http import request
+import pytz
+
+
+class PaymentInvoiceAPI(http.Controller):
+
+    @http.route(
+        ['/api/payment_invoice/'],
+        type='http',
+        auth='public',
+        methods=['GET'],
+        csrf=False
+    )
+    def get_payment_invoice(
+        self,
+        createdDateFrom=None,
+        createdDateTo=None,
+        pageSize=200,
+        page=1,
+        q=None,
+        is_integrated=None,
+        company_id=None,
+        **params
+    ):
         try:
             check_authorization()
 
-            if int(page) == 0:
+            page = int(page)
+            pageSize = int(pageSize)
+
+            if page <= 0:
                 return serialize_response([], 0, 0)
 
-            date_format = '%Y-%m-%d'
+            jakarta_tz = pytz.timezone('Asia/Jakarta')
+
+            # =================================================
+            # DOMAIN POS ORDER (SALE ONLY, NO REFUND)
+            # =================================================
             domain = [
-                ('move_type', '=', 'out_invoice'),
-                ('state', '=', 'posted'),
-                ('payment_state', '=', 'paid'),
+                ('state', '=', 'invoiced'),
+                ('amount_total', '>', 0)   # ⬅️ SALE ONLY
             ]
 
             if q:
-                domain += [('name', '=', str(q))]
+                domain.append(('name', '=', q))
 
-            if company_id is not None:
-                try:
-                    company_id_int = int(company_id)
-                    domain.append(('company_id', '=', company_id_int))
-                except ValueError:
-                    return serialize_response([], 0, 0)
+            if company_id:
+                domain.append(('company_id', '=', int(company_id)))
 
-            pageSize = int(pageSize) if pageSize else 200
-            page = int(page)
+            if createdDateFrom:
+                domain.append(('create_date', '>=', createdDateFrom))
 
-            # Handle date filtering
-            if createdDateFrom or createdDateTo:
-                created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
-                created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
-                domain += [
-                    ('create_date', '>=', created_date_from.strftime(date_format)),
-                    ('create_date', '<=', created_date_to.strftime(date_format)),
+            if createdDateTo:
+                domain.append(('create_date', '<=', createdDateTo))
+
+            # =================================================
+            # FETCH POS ORDERS
+            # =================================================
+            orders = request.env['pos.order'].sudo().search(
+                domain,
+                limit=pageSize,
+                offset=(page - 1) * pageSize,
+                order='create_date asc'
+            )
+
+            result = []
+
+            for order in orders:
+
+                # =================================================
+                # POS PAYMENTS (ONLY POSITIVE / NO REFUND)
+                # =================================================
+                payment_domain = [
+                    ('pos_order_id', '=', order.id),
+                    ('amount', '>', 0)   # ⬅️ EXCLUDE REFUND PAYMENT
                 ]
 
-            # Ambil data invoice (account.move)
-            payment_invoices = request.env['account.move'].sudo().search(domain, limit=pageSize, offset=(page - 1) * pageSize)
+                if is_integrated is not None:
+                    is_integrated_bool = str(is_integrated).lower() == 'true'
+                    payment_domain.append(
+                        ('is_integrated', '=', is_integrated_bool)
+                    )
 
-            jakarta_tz = pytz.timezone('Asia/Jakarta')
-            data_payment_invoice = []
+                pos_payments = request.env['pos.payment'].sudo().search(
+                    payment_domain
+                )
 
-            for payment in payment_invoices:
-                reference = payment.ref
-                if not reference:
+                if not pos_payments:
                     continue
 
-                # Get POS order details
-                order_pos = request.env['pos.order'].sudo().search([
-                    ('vit_trxid', '=', reference),
-                    ('state', '=', 'invoiced')
-                ], limit=1)
-
-                if not order_pos:
-                    continue
-
-                # Get location details from picking
-                picking = request.env['stock.picking'].sudo().search([
-                    ('origin', '=', order_pos.name)
-                ], limit=1)
+                # =================================================
+                # PICKING / LOCATION
+                # =================================================
+                picking = request.env['stock.picking'].sudo().search(
+                    [('origin', '=', order.name)],
+                    limit=1
+                )
 
                 location_id = picking.location_id.id if picking else False
-                location = picking.location_id.complete_name if picking else ''
+                location = (
+                    picking.location_id.complete_name if picking else ''
+                )
 
-                # Filter pos.payment sesuai is_integrated parameter
-                payment_domain = [('pos_order_id', '=', order_pos.id)]
-                if is_integrated is not None:
-                    is_integrated_bool = str(is_integrated).lower() == 'true'
-                    payment_domain += [('is_integrated', '=', is_integrated_bool)]
+                # =================================================
+                # ITEM (DP PRIORITY)
+                # =================================================
+                items = []
+                has_dp = False
 
-                pos_payments = request.env['pos.payment'].sudo().search(payment_domain)
+                for line in order.lines:
+                    is_dp = line.product_id.gm_is_dp
+                    if is_dp:
+                        has_dp = True
 
-                for payment_line in pos_payments:
-                    payment_date_utc = payment_line.payment_date
-                    if not payment_date_utc:
-                        continue
+                    items.append({
+                        'name': line.product_id.name,
+                        'code': line.product_id.default_code,
+                        'is_dp': is_dp
+                    })
 
-                    payment_date_jakarta = pytz.utc.localize(payment_date_utc).astimezone(jakarta_tz)
+                if has_dp:
+                    display_item = next(
+                        (i for i in items if i['is_dp']), None
+                    )
+                else:
+                    display_item = items[0] if items else None
 
-                    payments_data = {
-                        'id': payment_line.id,  # ambil dari pos.payment
-                        'doc_num': order_pos.name,
-                        'is_integrated': payment_line.is_integrated,
-                        'invoice': payment.name,
-                        'invoice_id': payment.id,
-                        'location_id': location_id,
-                        'location': location,
-                        'customer_id': payment.partner_id.id,
-                        'customer_name': payment.partner_id.name,
-                        'customer_code': payment.partner_id.customer_code,
-                        'payment_date': str(payment_date_jakarta),
-                        'amount': payment_line.amount,
-                        'create_date': str(payment_date_jakarta),
-                        'payment_method_pos_id': payment_line.payment_method_id.id,
-                        'payment_method_pos': payment_line.payment_method_id.name,
-                        'payment_method_journal_id': payment_line.payment_method_id.journal_id.inbound_payment_method_line_ids.payment_method_id.id,
-                        'payment_method_journal_name': payment_line.payment_method_id.journal_id.inbound_payment_method_line_ids.payment_method_id.name,
-                        'company_id': payment.company_id.id,
-                        'company_name': payment.company_id.name
-                    }
-                    data_payment_invoice.append(payments_data)
+                # =================================================
+                # GROUP PAYMENTS BY METHOD
+                # =================================================
+                payment_groups = {}
+                order_is_integrated = False
 
-            # Update total_records
-            total_records = len(data_payment_invoice)
+                for pay in pos_payments:
+                    if pay.is_integrated:
+                        order_is_integrated = True
+
+                    method_id = pay.payment_method_id.id
+                    payment_date = pay.payment_date
+
+                    if payment_date:
+                        payment_date = pytz.utc.localize(
+                            payment_date
+                        ).astimezone(jakarta_tz)
+
+                    if method_id not in payment_groups:
+                        payment_groups[method_id] = {
+                            'id': pay.id,
+                            'payment_date': str(payment_date),
+                            'create_date': str(payment_date),
+                            'amount': pay.amount,
+                            'payment_method_pos_id': method_id,
+                            'payment_method_pos': pay.payment_method_id.name,
+                            'payment_method_journal_id':
+                                pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids
+                                .payment_method_id.id
+                                if pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids else False,
+                            'payment_method_journal_name':
+                                pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids
+                                .payment_method_id.name
+                                if pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids else '',
+                            'is_integrated': pay.is_integrated
+                        }
+                    else:
+                        payment_groups[method_id]['amount'] += pay.amount
+                        if pay.is_integrated:
+                            payment_groups[method_id]['is_integrated'] = True
+
+                # =================================================
+                # FINAL RESPONSE STRUCTURE
+                # =================================================
+                result.append({
+                    'doc_num': order.name,
+                    'is_integrated': order_is_integrated,
+                    'invoice': order.account_move.name
+                        if order.account_move else '',
+                    'invoice_id': order.account_move.id
+                        if order.account_move else False,
+                    'location_id': location_id,
+                    'location': location,
+                    'customer_id': order.partner_id.id,
+                    'customer_name': order.partner_id.name,
+                    'customer_code': order.partner_id.customer_code,
+                    'item': display_item['name']
+                        if display_item else '',
+                    'item_code': display_item['code']
+                        if display_item else '',
+                    'is_dp': display_item['is_dp']
+                        if display_item else False,
+                    'company_id': order.company_id.id,
+                    'company_name': order.company_id.name,
+                    'payments': list(payment_groups.values())
+                })
+
+            total_records = len(result)
             total_pages = (total_records + pageSize - 1) // pageSize
 
-            return serialize_response(data_payment_invoice, total_records, total_pages)
-
-        except ValidationError:
-            error_response = {
-                'error': 'One or more required parameters are missing.',
-                'status': 500
-            }
-            return http.Response(json.dumps(error_response), content_type='application/json', status=500)
+            return serialize_response(
+                result,
+                total_records,
+                total_pages
+            )
 
         except Exception as e:
             return serialize_error_response(str(e))
 
-        
+
+
 class PaymentReturnCreditMemoAPI(http.Controller):
-    @http.route(['/api/payment_creditmemo/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def get_payment_credit_memo(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+
+    @http.route(
+        ['/api/payment_creditmemo/'],
+        type='http',
+        auth='public',
+        methods=['GET'],
+        csrf=False
+    )
+    def get_payment_credit_memo(
+        self,
+        createdDateFrom=None,
+        createdDateTo=None,
+        pageSize=200,
+        page=1,
+        q=None,
+        is_integrated=None,
+        company_id=None,
+        **params
+    ):
         try:
             check_authorization()
 
-            if int(page) == 0:
+            page = int(page)
+            pageSize = int(pageSize)
+
+            if page <= 0:
                 return serialize_response([], 0, 0)
 
-            date_format = '%Y-%m-%d'
+            jakarta_tz = pytz.timezone('Asia/Jakarta')
+
+            # =====================================
+            # DOMAIN POS ORDER (RETURN / REFUND)
+            # =====================================
             domain = [
-                ('move_type', '=', 'out_refund'),
-                ('state', '=', 'posted'),
-                ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial'])
+                ('state', '=', 'invoiced'),
+                ('amount_total', '<', 0)  # POS RETURN
             ]
 
             if q:
-                domain += [('name', '=', str(q))]
+                domain.append(('name', '=', q))
 
-            if company_id is not None:
-                try:
-                    company_id_int = int(company_id)
-                    domain.append(('company_id', '=', company_id_int))
-                except ValueError:
-                    return serialize_response([], 0, 0)
+            if company_id:
+                domain.append(('company_id', '=', int(company_id)))
 
-            pageSize = int(pageSize) if pageSize else 200
-            page = int(page)
+            if createdDateFrom:
+                domain.append(('create_date', '>=', createdDateFrom))
 
-            # Handle date filtering
-            if createdDateFrom or createdDateTo:
-                created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
-                created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
-                domain += [
-                    ('create_date', '>=', created_date_from.strftime(date_format)),
-                    ('create_date', '<=', created_date_to.strftime(date_format))
+            if createdDateTo:
+                domain.append(('create_date', '<=', createdDateTo))
+
+            # =====================================
+            # FETCH POS RETURN ORDERS
+            # =====================================
+            orders = request.env['pos.order'].sudo().search(
+                domain,
+                limit=pageSize,
+                offset=(page - 1) * pageSize,
+                order='create_date asc'
+            )
+
+            result = []
+
+            for order in orders:
+
+                # =====================================
+                # POS PAYMENTS (REFUND)
+                # =====================================
+                payment_domain = [
+                    ('pos_order_id', '=', order.id),
+                    ('amount', '<', 0)
                 ]
 
-            # Ambil data credit memo (account.move)
-            credit_memos = request.env['account.move'].sudo().search(domain, limit=pageSize, offset=(page - 1) * pageSize)
-
-            jakarta_tz = pytz.timezone('Asia/Jakarta')
-            data_credit_memo = []
-
-            for credit in credit_memos:
-                reference = credit.ref
-                if not reference:
-                    continue
-
-                # Get POS order details
-                order_pos = request.env['pos.order'].sudo().search([
-                    ('vit_trxid', '=', reference),
-                    ('state', '=', 'invoiced')
-                ], limit=1)
-
-                if not order_pos:
-                    continue
-
-                # Get location details from picking
-                picking = request.env['stock.picking'].sudo().search([
-                    ('origin', '=', order_pos.name)
-                ], limit=1)
-
-                location_id = picking.location_dest_id.id if picking else False
-                location = picking.location_dest_id.complete_name if picking else ''
-
-                # Filter pos.payment sesuai parameter is_integrated
-                payment_domain = [('pos_order_id', '=', order_pos.id)]
                 if is_integrated is not None:
                     is_integrated_bool = str(is_integrated).lower() == 'true'
-                    payment_domain += [('is_integrated', '=', is_integrated_bool)]
+                    payment_domain.append(
+                        ('is_integrated', '=', is_integrated_bool)
+                    )
 
-                pos_payments = request.env['pos.payment'].sudo().search(payment_domain)
+                pos_payments = request.env['pos.payment'].sudo().search(
+                    payment_domain
+                )
 
-                for payment_line in pos_payments:
-                    payment_date_utc = payment_line.payment_date
-                    if not payment_date_utc:
-                        continue
+                if not pos_payments:
+                    continue
 
-                    payment_date_jakarta = pytz.utc.localize(payment_date_utc).astimezone(jakarta_tz)
+                # =====================================
+                # PICKING (RETURN LOCATION)
+                # =====================================
+                picking = request.env['stock.picking'].sudo().search(
+                    [('origin', '=', order.name)],
+                    limit=1
+                )
 
-                    payments_data = {
-                        'id': payment_line.id,  # ambil dari pos.payment
-                        'doc_num': order_pos.name,
-                        'is_integrated': payment_line.is_integrated,
-                        'invoice': credit.name,
-                        'invoice_id': credit.id,
-                        'location_id': location_id,
-                        'location': location,
-                        'customer_id': credit.partner_id.id,
-                        'customer_name': credit.partner_id.name,
-                        'customer_code': credit.partner_id.customer_code,
-                        'payment_date': str(payment_date_jakarta),
-                        'amount': payment_line.amount,
-                        'create_date': str(payment_date_jakarta),
-                        'payment_method_pos_id': payment_line.payment_method_id.id,
-                        'payment_method_pos': payment_line.payment_method_id.name,
-                        'payment_method_journal_id': payment_line.payment_method_id.journal_id.inbound_payment_method_line_ids.payment_method_id.id,
-                        'payment_method_journal_name': payment_line.payment_method_id.journal_id.inbound_payment_method_line_ids.payment_method_id.name,
-                        'company_id': payment_line.company_id.id,
-                        'company_name': payment_line.company_id.name
-                    }
-                    data_credit_memo.append(payments_data)
+                location_id = (
+                    picking.location_dest_id.id if picking else False
+                )
+                location = (
+                    picking.location_dest_id.complete_name if picking else ''
+                )
 
-            # Update total_records
-            total_records = len(data_credit_memo)
+                # =====================================
+                # GROUP PAYMENTS BY METHOD
+                # =====================================
+                payment_groups = {}
+                order_is_integrated = False
+
+                for pay in pos_payments:
+                    if pay.is_integrated:
+                        order_is_integrated = True
+
+                    method_id = pay.payment_method_id.id
+                    payment_date = pay.payment_date
+
+                    if payment_date:
+                        payment_date = pytz.utc.localize(
+                            payment_date
+                        ).astimezone(jakarta_tz)
+
+                    if method_id not in payment_groups:
+                        payment_groups[method_id] = {
+                            'id': pay.id,
+                            'payment_date': str(payment_date),
+                            'create_date': str(payment_date),
+                            'amount': pay.amount,
+                            'payment_method_pos_id': method_id,
+                            'payment_method_pos': pay.payment_method_id.name,
+                            'payment_method_journal_id':
+                                pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids
+                                .payment_method_id.id
+                                if pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids else False,
+                            'payment_method_journal_name':
+                                pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids
+                                .payment_method_id.name
+                                if pay.payment_method_id.journal_id
+                                .inbound_payment_method_line_ids else '',
+                            'is_integrated': pay.is_integrated
+                        }
+                    else:
+                        payment_groups[method_id]['amount'] += pay.amount
+                        if pay.is_integrated:
+                            payment_groups[method_id]['is_integrated'] = True
+
+                # =====================================
+                # FINAL RESPONSE STRUCTURE
+                # =====================================
+                result.append({
+                    'doc_num': order.name,
+                    'is_integrated': order_is_integrated,
+                    'invoice': order.account_move.name
+                        if order.account_move else '',
+                    'invoice_id': order.account_move.id
+                        if order.account_move else False,
+                    'location_id': location_id,
+                    'location': location,
+                    'customer_id': order.partner_id.id,
+                    'customer_name': order.partner_id.name,
+                    'customer_code': order.partner_id.customer_code,
+                    'company_id': order.company_id.id,
+                    'company_name': order.company_id.name,
+                    'payments': list(payment_groups.values())
+                })
+
+            total_records = len(result)
             total_pages = (total_records + pageSize - 1) // pageSize
 
-            return serialize_response(data_credit_memo, total_records, total_pages)
-
-        except ValidationError:
-            error_response = {
-                'error': 'One or more required parameters are missing.',
-                'status': 500
-            }
-            return http.Response(json.dumps(error_response), content_type='application/json', status=500)
-
+            return serialize_response(
+                result,
+                total_records,
+                total_pages
+            )
         except Exception as e:
             return serialize_error_response(str(e))
 
 
-      
 class MasterUoMAPI(http.Controller):
     @http.route(['/api/master_uom/'], type='http', auth='public', methods=['GET'], csrf=False)
     def master_UoM_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, company_id=None, **params):
@@ -1162,7 +1310,7 @@ class MasterPoSCategoryItem(http.Controller):
         
 class MasterCustomerAPI(http.Controller):
     @http.route(['/api/master_customer/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, customer_code=None, is_integrated=None, company_id=None, **params):
         try:
             check_authorization()
 
@@ -1174,8 +1322,8 @@ class MasterCustomerAPI(http.Controller):
             pageSize = int(pageSize) if pageSize else 200
 
             # Build domain filters
-            if q:
-                domain += [('customer_code', '=', str(q))]
+            if customer_code:
+                domain += [('customer_code', '=', str(customer_code))]
             
             if company_id is not None:
                 try:
@@ -1196,12 +1344,8 @@ class MasterCustomerAPI(http.Controller):
                 is_integrated_bool = str(is_integrated).lower() == 'true'
                 domain += [('is_integrated', '=', is_integrated_bool)]
 
-            # Fetch data with pagination
-            if domain or (q is not None):
-                customers_data, total_records = paginate_records('res.partner', domain, pageSize, page)
-            else:
-                customers_data = request.env['res.partner'].sudo().search([])
-                total_records = len(customers_data)
+            # ✅ Fetch data with pagination - ALWAYS use domain
+            customers_data, total_records = paginate_records('res.partner', domain, pageSize, page)
 
             data_master_customer = []
             jakarta_tz = pytz.timezone('Asia/Jakarta')
@@ -1210,23 +1354,19 @@ class MasterCustomerAPI(http.Controller):
                 create_date_utc = customer.create_date
                 create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
                 
-                # Fix: Ensure customer_code is always a string or proper value
-                customer_code = customer.customer_code if customer.customer_code else ""
-                
                 customer_data = {
                     'id': customer.id,
                     'create_date': str(create_date_jakarta),
                     'name': customer.name,
-                    'street': customer.street,
-                    'phone': customer.phone,
-                    'mobile': customer.mobile,
-                    'email': customer.email,
-                    'website': customer.website,
+                    'street': customer.street if customer.street else "",
+                    'phone': customer.phone if customer.phone else "",
+                    'mobile': customer.mobile if customer.mobile else "",
+                    'email': customer.email if customer.email else "",
+                    'website': customer.website if customer.website else "",
                     'title': customer.title.name if customer.title else "",
                     'is_integrated': customer.is_integrated,
                     'customer_rank': customer.customer_rank,
                     'supplier_rank': customer.supplier_rank,
-                    'customer_code': customer_code,
                     'property_product_pricelist_id': customer.property_product_pricelist.id if customer.property_product_pricelist else None,
                     'property_product_pricelist': customer.property_product_pricelist.name if customer.property_product_pricelist else "",
                     'property_account_receivable_id': customer.property_account_receivable_id.id if customer.property_account_receivable_id else None,
@@ -1240,6 +1380,11 @@ class MasterCustomerAPI(http.Controller):
                     'company_id': customer.company_id.id if customer.company_id else None,
                     'company_name': customer.company_id.name if customer.company_id else "",
                 }
+                
+                # ✅ Hanya tambahkan customer_code jika ada isinya
+                if customer.customer_code:
+                    customer_data['customer_code'] = customer.customer_code
+                
                 data_master_customer.append(customer_data)
 
             total_pages = (total_records + pageSize - 1) // pageSize
@@ -1258,21 +1403,21 @@ class MasterCustomerAPI(http.Controller):
         
 class MasterLocationAPI(http.Controller):
     @http.route(['/api/master_location/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def master_location_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, company_id=None, **params):
+    def master_location_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, location=None, company_id=None, **params):
         try:
             check_authorization()
-
-            # if not q and (not createdDateFrom or not createdDateTo or not pageSize or not page):
-            #     raise ValidationError("One or more required parameters are missing.")
 
             if int(page) == 0:
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = []  # Initialize domain here
+            domain = []
+            pageSize = int(pageSize) if pageSize else 200
 
-            if q:
-                domain += [('complete_name', 'ilike', str(q))]
+            # Build domain filters
+            if location:
+                # ✅ Filter hanya yang mengandung '/Stock' dan sesuai dengan location parameter
+                domain += ['&', ('complete_name', 'ilike', '/Stock'), ('complete_name', 'ilike', str(location))]
             
             if company_id is not None:
                 try:
@@ -1281,58 +1426,45 @@ class MasterLocationAPI(http.Controller):
                 except ValueError:
                     return serialize_response([], 0, 0)
 
-            if not createdDateFrom and not createdDateTo and not q:
-                # Handle the case when no specific filters are provided
-                location_data = request.env['stock.location'].sudo().search([])
-                total_records = len(location_data)
-            else:
-                if createdDateFrom or createdDateTo:
-                    created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
-                    created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
+            if createdDateFrom or createdDateTo:
+                created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
+                created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
 
-                    domain += [('create_date', '>=', created_date_from.strftime(date_format)),
+                domain += [('create_date', '>=', created_date_from.strftime(date_format)),
                           ('create_date', '<=', created_date_to.strftime(date_format))]
 
-                pageSize = int(pageSize) if pageSize else 200
-
-            if not q:  # Check if q is provided
-                location_data, total_records = paginate_records('stock.location', domain, pageSize, page)
-            else:
-                location_data = request.env['stock.location'].sudo().search(domain)
-                total_records = len(location_data)
+            # ✅ Fetch data with pagination - ALWAYS use domain
+            location_data, total_records = paginate_records('stock.location', domain, pageSize, page)
 
             data_master_location = []
             jakarta_tz = pytz.timezone('Asia/Jakarta')
+            
             for location in location_data:
                 create_date_utc = location.create_date
                 create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
+                
                 locations_data = {
                     'id': location.id,
                     'name': location.complete_name,
                     'create_date': str(create_date_jakarta),
-                    'location_id': location.location_id.id,
-                    'location': location.location_id.name,
+                    'location_id': location.location_id.id if location.location_id else None,
+                    'location': location.location_id.name if location.location_id else "",
                     'usage': location.usage,
                     'scrap_location': location.scrap_location,
                     'return_location': location.return_location,
                     'replenish_location': location.replenish_location,
-                    'last_inventory_date': str(location.last_inventory_date),
-                    'next_inventory_date': str(location.next_inventory_date),
-                    'company_id': location.company_id.id,
-                    'company_name': location.company_id.name
-                    
+                    'last_inventory_date': str(location.last_inventory_date) if location.last_inventory_date else "",
+                    'next_inventory_date': str(location.next_inventory_date) if location.next_inventory_date else "",
+                    'company_id': location.company_id.id if location.company_id else None,
+                    'company_name': location.company_id.name if location.company_id else ""
                 }
                 data_master_location.append(locations_data)
-
-            if not createdDateFrom and not createdDateTo and not q:
-                total_records = len(data_master_location)
 
             total_pages = (total_records + pageSize - 1) // pageSize
 
             return serialize_response(data_master_location, total_records, total_pages)
         
         except ValidationError as ve:
-            # If any required parameter is missing, return HTTP 500 error
             error_response = {
                 'error': 'One or more required parameters are missing.',
                 'status': 500
@@ -2354,8 +2486,19 @@ class ManufacturingOrderAPI(http.Controller):
             return serialize_error_response(str(e))
         
 class InvoiceOrder(http.Controller):
+
     @http.route(['/api/invoice_order/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def get_invoices_order(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+    def get_invoices_order(
+        self,
+        createdDateFrom=None,
+        createdDateTo=None,
+        pageSize=200,
+        page=1,
+        q=None,
+        is_integrated=None,
+        company_id=None,
+        **params
+    ):
         try:
             check_authorization()
 
@@ -2363,91 +2506,93 @@ class InvoiceOrder(http.Controller):
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = [('state', '=', 'posted'), ('payment_state', '=', 'paid'), ('move_type', '=', 'out_invoice'), ('partner_id.customer_code', '!=', False)]
+            domain = [
+                ('state', '=', 'posted'),
+                ('payment_state', '=', 'paid'),
+                ('move_type', '=', 'out_invoice'),
+                ('partner_id.customer_code', '!=', False)
+            ]
+
             pageSize = int(pageSize) if pageSize else 200
 
             if q:
-                domain += [('name', 'ilike', str(q))]
+                domain.append(('name', 'ilike', str(q)))
 
-            if company_id is not None:
-                try:
-                    company_id_int = int(company_id)
-                    domain.append(('company_id', '=', company_id_int))
-                except ValueError:
-                    return serialize_response([], 0, 0)
+            if company_id:
+                domain.append(('company_id', '=', int(company_id)))
 
             if createdDateFrom or createdDateTo:
                 created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
                 created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
-
-                domain += [('create_date', '>=', created_date_from.strftime(date_format)),
-                            ('create_date', '<=', created_date_to.strftime(date_format))]
+                domain += [
+                    ('create_date', '>=', created_date_from.strftime(date_format)),
+                    ('create_date', '<=', created_date_to.strftime(date_format))
+                ]
 
             if is_integrated is not None:
-                is_integrated_bool = str(is_integrated).lower() == 'true'
-                domain += [('is_integrated', '=', is_integrated_bool)]
+                domain.append(('is_integrated', '=', str(is_integrated).lower() == 'true'))
 
-            # Fetch data
-            if domain or q:
-                invoice_accounting, total_records = paginate_records('account.move', domain, pageSize, page)
-            else:
-                invoice_accounting = request.env['account.move'].sudo().search(domain)
-                total_records = len(invoice_accounting)
+            invoice_accounting, total_records = paginate_records(
+                'account.move', domain, pageSize, page
+            )
 
             data_invoice_accounting = []
             jakarta_tz = pytz.timezone('Asia/Jakarta')
 
             for order in invoice_accounting:
-                try:
-                    order_pos = request.env['pos.order'].sudo().search([('vit_trxid', '=', order.ref), ('state', '=', 'invoiced')], limit=1)
-                    location_id = location = location_dest_id = location_dest = None
 
-                    if order_pos:
-                        pickings = request.env['stock.picking'].sudo().search([('origin', '=', order_pos.name)], limit=1)
-                        if pickings:
-                            location_id = pickings.location_id.id
-                            location = pickings.location_id.complete_name
-                            location_dest_id = pickings.location_dest_id.id
-                            location_dest = pickings.location_dest_id.complete_name
+                pos_order = order.pos_order_ids[:1]
 
-                    create_date_utc = order.create_date
-                    create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
-
-                    order_data = {
-                        'id': order.id,
-                        'pos_order_id': order.pos_order_ids[0].id if order.pos_order_ids else None,
-                        'doc_num': order.name,
-                        'ref_num': order.ref or "",
-                        'customer_id': order.partner_id.id,
-                        'customer_name': order.partner_id.name,
-                        'customer_code': order.partner_id.customer_code or "",
-                        'location_id': location_id or -1,
-                        'location': location or "",
-                        'location_dest_id': location_dest_id or -1,
-                        'location_dest': location_dest or "",
-                        'is_integrated': order.is_integrated,
-                        'create_date': str(create_date_jakarta),
-                        'invoice_date': str(order.invoice_date),
-                        'invoice_date_due': str(order.invoice_date_due),
-                        'payment_reference': order.payment_reference or "",
-                        'journal_id': order.journal_id.id,
-                        'journal': order.journal_id.name,
-                        'company_id': order.company_id.id,
-                        'company_name': order.company_id.name,
-                    }
-                    data_invoice_accounting.append(order_data)
-                except Exception as line_error:
-                    _logger.warning(f"Error processing invoice {order.id}: {str(line_error)}")
+                # SKIP JIKA GIFT CARD
+                if pos_order and hasattr(pos_order, 'gift_card_code') and pos_order.gift_card_code:
                     continue
 
-            total_records = int(total_records)
+                # ================================
+                # SKIP JIKA ADA ITEM PELUNASAN
+                # ================================
+                if any(
+                    line.product_id
+                    and hasattr(line.product_id, 'gm_is_pelunasan')
+                    and line.product_id.gm_is_pelunasan
+                    for line in order.invoice_line_ids
+                ):
+                    continue
+
+                create_date_jakarta = pytz.utc.localize(
+                    order.create_date
+                ).astimezone(jakarta_tz)
+
+                data_invoice_accounting.append({
+                    'id': order.id,
+                    'pos_order_id': order.pos_order_ids[0].id if order.pos_order_ids else None,
+                    'doc_num': order.name,
+                    'ref_num': order.ref or "",
+                    'customer_id': order.partner_id.id,
+                    'customer_name': order.partner_id.name,
+                    'customer_code': order.partner_id.customer_code or "",
+                    'is_integrated': order.is_integrated,
+                    'create_date': str(create_date_jakarta),
+                    'invoice_date': str(order.invoice_date),
+                    'invoice_date_due': str(order.invoice_date_due),
+                    'payment_reference': order.payment_reference or "",
+                    'journal_id': order.journal_id.id,
+                    'journal': order.journal_id.name,
+                    'company_id': order.company_id.id,
+                    'company_name': order.company_id.name,
+                })
+
+            total_records = len(data_invoice_accounting)
             total_pages = (total_records + pageSize - 1) // pageSize
 
-            return serialize_response(data_invoice_accounting, total_records, total_pages)
+            return serialize_response(
+                data_invoice_accounting,
+                total_records,
+                total_pages
+            )
 
         except Exception as e:
-            _logger.error(f"Error in get_invoices_order: {str(e)}")
             return serialize_error_response(str(e))
+
 
     @http.route(['/api/invoice_order_line/<int:order_id>'], type='http', auth='public', methods=['GET'], csrf=False)
     def get_invoice_order_lines(self, order_id, **params):
@@ -2492,6 +2637,10 @@ class InvoiceOrder(http.Controller):
                     # Skip line yang bukan produk (tidak ada product_id)
                     if not line.product_id:
                         _logger.info(f"Skipping line {line.id} - no product_id")
+                        continue
+
+                    if line.product_id.default_code == 'DPPOS':
+                        _logger.info(f"Skipping line {line.id} - product code is ITEMDP")
                         continue
                     
                     # Skip hanya jika quantity 0
@@ -2889,7 +3038,11 @@ class CrediNoteAPI(http.Controller):
             location = None
 
             for order in invoice_accounting:
-                order_pos = request.env['pos.order'].sudo().search([('vit_trxid', '=', order.ref), ('state', '=', 'invoiced')], limit=1)
+                # Cari pos.order dari relasi langsung
+                order_pos = order.pos_order_ids.filtered(lambda p: p.state == 'invoiced')
+                if not order_pos and order.ref:
+                    # Fallback: cari berdasarkan name yang match dengan ref
+                    order_pos = request.env['pos.order'].sudo().search([('name', '=', order.ref), ('state', '=', 'invoiced')], limit=1)
                 
                 if not order_pos:  # Skip if no related pos.order is found
                     continue
@@ -4010,7 +4163,11 @@ class TsOutAPI(http.Controller):
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = [('picking_type_id.name', '=', 'TS Out'), ('state', '=', 'done')]  # Initialize domain here
+            # Updated domain to filter by Internal Transfers and gm_type_transfer
+            domain = [
+                ('picking_type_id.name', '=', 'TSOUT'),
+                ('state', '=', 'done')
+            ]
 
             if q:
                 domain += [('name', 'ilike', str(q))]
@@ -4024,7 +4181,6 @@ class TsOutAPI(http.Controller):
 
             if not createdDateFrom and not createdDateTo and not q and is_integrated is None:
                 # Handle the case when no specific filters are provided
-                # domain = [('name', 'ilike', str(q))] if q else [('state', '=', 'done'), ('picking_type_id.name', '=', 'TS Out')]
                 transit_out = request.env['stock.picking'].sudo().search(domain)
                 total_records = len(transit_out)
             else:
@@ -4032,9 +4188,10 @@ class TsOutAPI(http.Controller):
                     created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
                     created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
 
-                    domain += [('create_date', '>=', created_date_from.strftime(date_format)),
-                          ('create_date', '<=', created_date_to.strftime(date_format)),
-                          ('picking_type_id.name', '=', 'TS Out'), ('state', '=', 'done')]
+                    domain += [
+                        ('create_date', '>=', created_date_from.strftime(date_format)),
+                        ('create_date', '<=', created_date_to.strftime(date_format))
+                    ]
                     
                 if is_integrated is not None:
                     is_integrated_bool = str(is_integrated).lower() == 'true'
@@ -4065,6 +4222,7 @@ class TsOutAPI(http.Controller):
                     'location_dest': order.location_dest_id.complete_name,
                     'picking_type_id': order.picking_type_id.id,
                     'picking_type': order.picking_type_id.name,
+                    'gm_type_transfer': order.gm_type_transfer,  # Added field
                     'create_date': str(create_date_jakarta),
                     'scheduled_date': str(order.scheduled_date),
                     'date_done': str(order.date_done),
@@ -4101,9 +4259,9 @@ class TsOutAPI(http.Controller):
             if not transit_out:
                 raise werkzeug.exceptions.NotFound(_("Transfer Out"))
             
-            # Ensure the order is a 'Return' type
-            if transit_out.picking_type_id.name != 'TS Out':
-                raise werkzeug.exceptions.NotFound(_("Transfer is not in TS Out"))
+            # Validasi untuk memastikan picking_type_id.name adalah 'TSOUT'
+            if transit_out.picking_type_id.name != 'TSOUT':
+                raise werkzeug.exceptions.NotFound(_("Transfer is not TSOUT Operation Type"))
 
             transit_out_lines = transit_out.move_ids_without_package
             doc_num = transit_out.name
@@ -4156,6 +4314,7 @@ class TsOutAPI(http.Controller):
                 'location_dest': location_dest,
                 'picking_type_id': picking_type_id,
                 'picking_type': picking_type,
+                'gm_type_transfer': transit_out.gm_type_transfer,
                 'created_date': created_date,
                 'scheduled_date': scheduled_date,
                 'date_done': date_done,
@@ -4183,7 +4342,11 @@ class TsInAPI(http.Controller):
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = [('picking_type_id.name', '=', 'TS In'), ('state', '=', 'done')]  # Initialize domain here
+            # Updated domain to filter by Internal Transfers and gm_type_transfer
+            domain = [
+                ('picking_type_id.name', '=', 'TSIN'),
+                ('state', '=', 'done')
+            ]
 
             if q:
                 domain += [('name', 'ilike', str(q))]
@@ -4203,9 +4366,10 @@ class TsInAPI(http.Controller):
                     created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
                     created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
 
-                    domain += [('create_date', '>=', created_date_from.strftime(date_format)),
-                          ('create_date', '<=', created_date_to.strftime(date_format)),
-                          ('picking_type_id.name', '=', 'TS In'), ('state', '=', 'done')]
+                    domain += [
+                        ('create_date', '>=', created_date_from.strftime(date_format)),
+                        ('create_date', '<=', created_date_to.strftime(date_format))
+                    ]
 
                 if is_integrated is not None:
                     is_integrated_bool = str(is_integrated).lower() == 'true'
@@ -4236,6 +4400,7 @@ class TsInAPI(http.Controller):
                     'location_dest': order.location_dest_id.complete_name,
                     'picking_type_id': order.picking_type_id.id,
                     'picking_type': order.picking_type_id.name,
+                    'gm_type_transfer': order.gm_type_transfer,  # Added field
                     'create_date': str(create_date_jakarta),
                     'scheduled_date': str(order.scheduled_date),
                     'date_done': str(order.date_done),
@@ -4272,9 +4437,9 @@ class TsInAPI(http.Controller):
             if not transit_in:
                 raise werkzeug.exceptions.NotFound(_("TS In not found"))
             
-            # Ensure the order is a 'Return' type
-            if transit_in.picking_type_id.name != 'TS In':
-                raise werkzeug.exceptions.NotFound(_("Transfer Is Not In TS In"))
+            # Validasi untuk memastikan picking_type_id.name adalah 'TSIN'
+            if transit_in.picking_type_id.name != 'TSIN':
+                raise werkzeug.exceptions.NotFound(_("Transfer Is Not TSIN Operation Type"))
 
             transit_in_lines = transit_in.move_ids_without_package
             doc_num = transit_in.name
@@ -4327,6 +4492,7 @@ class TsInAPI(http.Controller):
                 'location_dest': location_dest,
                 'picking_type_id': picking_type_id,
                 'picking_type': picking_type,
+                'gm_type_transfer': transit_in.gm_type_transfer,
                 'created_date': created_date,
                 'scheduled_date': scheduled_date,
                 'date_done': date_done,

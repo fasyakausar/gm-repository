@@ -646,6 +646,37 @@ class PosSession(models.Model):
 
     def _pos_ui_res_config_settings(self, params):
         return self._get_pos_ui_res_config_settings(params)
+    
+    def _loader_params_product_product(self):
+        """Override untuk menambahkan gm_is_pelunasan dengan logging"""
+        result = super()._loader_params_product_product()
+        
+        # Tambahkan gm_is_pelunasan ke fields
+        if 'gm_is_pelunasan' not in result['search_params']['fields']:
+            result['search_params']['fields'].append('gm_is_pelunasan')
+        
+        _logger.info("✅ Added gm_is_pelunasan to product.product loader")
+        _logger.info(f"📦 Product fields: {result['search_params']['fields']}")
+        
+        return result
+
+    def _get_pos_ui_product_product(self, params):
+        """Override untuk logging product data"""
+        products = super()._get_pos_ui_product_product(params)
+        
+        # Log products with gm_is_pelunasan
+        pelunasan_products = [p for p in products if p.get('gm_is_pelunasan')]
+        if pelunasan_products:
+            _logger.info(f"🎯 Found {len(pelunasan_products)} pelunasan products:")
+            for p in pelunasan_products:
+                _logger.info(f"  - {p.get('display_name')} (ID: {p.get('id')}, gm_is_pelunasan: {p.get('gm_is_pelunasan')})")
+        else:
+            _logger.warning("⚠️ No pelunasan products found in loaded data")
+        
+        return products
+    
+    def _pos_ui_product_product(self, params):
+        return self._get_pos_ui_product_product(params)
 
     # def _loader_params_res_partner(self):
     #     try:

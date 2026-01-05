@@ -58,7 +58,7 @@ class ResConfigSettings(models.TransientModel):
 class PosPaymentMethod(models.Model):
     _inherit = 'pos.payment.method'
     
-    is_refund = fields.Boolean(
+    gm_is_refund = fields.Boolean(
         string='Is Refund Payment Method',
         default=False,
         help='Check this if this payment method should be used for refunds/returns'
@@ -86,7 +86,7 @@ class ReturnApproval(models.Model):
         index=True, 
         default=lambda self: self.env.company,
         tracking=True,
-        states={'draft': [('readonly', False)]},
+        states={'waiting_approval_1': [('readonly', False)]},
         readonly=True
     )
     gm_pos_order_id = fields.Many2one(
@@ -138,12 +138,11 @@ class ReturnApproval(models.Model):
         tracking=True
     )
     gm_status = fields.Selection([
-        ('draft', 'Draft'),
         ('waiting_approval_1', 'Waiting Approval L1'),
         ('waiting_approval_2', 'Waiting Approval L2'),
         ('approved', 'Approved'),
         ('rejected', 'Rejected'),
-    ], string="Status", default='draft', required=True, readonly=True, tracking=True)
+    ], string="Status", default='waiting_approval_1', required=True, readonly=True, tracking=True)
     
     gm_line_ids = fields.One2many(
         'return.approval.line', 
@@ -236,46 +235,275 @@ class ReturnApproval(models.Model):
             )
     
     @api.model
+    def get_refunded_quantities(self, pos_order_id):
+        """
+        Get total refunded quantities per product for a SPECIFIC POS order
+        Returns dict: {product_id: total_refunded_qty}
+        """
+        return_approvals = self.search([
+            ('gm_pos_order_id', '=', pos_order_id),
+            ('gm_status', '!=', 'rejected')
+        ])
+        
+        refunded_qtys = {}
+        for return_approval in return_approvals:
+            for line in return_approval.gm_line_ids:
+                product_id = line.gm_product_id.id
+                if product_id not in refunded_qtys:
+                    refunded_qtys[product_id] = 0.0
+                refunded_qtys[product_id] += abs(line.gm_qty)
+        
+        return refunded_qtys
+    
+    @api.model
+    def get_available_return_items(self, pos_order_id):
+        """
+        Get items that can still be returned from a SPECIFIC POS order
+        """
+        pos_order = self.env['pos.order'].browse(pos_order_id)
+        if not pos_order:
+            return []
+        
+        refunded_qtys = self.get_refunded_quantities(pos_order_id)
+        
+        available_items = []
+        for line in pos_order.lines:
+            product_id = line.product_id.id
+            original_qty = abs(line.qty)
+            refunded_qty = refunded_qtys.get(product_id, 0.0)
+            remaining_qty = original_qty - refunded_qty
+            
+            if remaining_qty > 0:
+                available_items.append({
+                    'product_id': product_id,
+                    'product_name': line.product_id.display_name,
+                    'original_qty': original_qty,
+                    'refunded_qty': refunded_qty,
+                    'remaining_qty': remaining_qty,
+                    'price_unit': line.price_unit,
+                })
+        
+        return available_items
+    
+    @api.model
+    def get_detailed_refund_info(self, pos_order_id):
+        """
+        Get detailed refund information for a SPECIFIC POS order
+        """
+        return_approvals = self.search([
+            ('gm_pos_order_id', '=', pos_order_id),
+            ('gm_status', '!=', 'rejected')
+        ])
+        
+        refund_info = {}
+        for return_approval in return_approvals:
+            for line in return_approval.gm_line_ids:
+                product_id = line.gm_product_id.id
+                
+                if product_id not in refund_info:
+                    refund_info[product_id] = {
+                        'total_qty': 0.0,
+                        'approved_qty': 0.0,
+                        'pending_qty': 0.0,
+                        'refund_docs': []
+                    }
+                
+                qty = abs(line.gm_qty)
+                refund_info[product_id]['total_qty'] += qty
+                
+                if return_approval.gm_status == 'approved':
+                    refund_info[product_id]['approved_qty'] += qty
+                else:
+                    refund_info[product_id]['pending_qty'] += qty
+                
+                status_label = dict(self._fields['gm_status'].selection).get(return_approval.gm_status)
+                refund_info[product_id]['refund_docs'].append({
+                    'doc_num': return_approval.gm_doc_num,
+                    'status': return_approval.gm_status,
+                    'status_label': status_label,
+                    'qty': qty
+                })
+        
+        return refund_info
+    
+    @api.constrains('gm_line_ids')
+    def _check_return_quantities(self):
+        """
+        Validate that return quantities don't exceed available quantities
+        """
+        for record in self:
+            if not record.gm_pos_order_id:
+                continue
+                
+            pos_order = record.gm_pos_order_id
+            
+            # Get existing returns excluding current record
+            domain = [
+                ('gm_pos_order_id', '=', pos_order.id),
+                ('gm_status', '!=', 'rejected'),
+            ]
+            if record.id:
+                domain.append(('id', '!=', record.id))
+            
+            existing_returns = self.search(domain)
+            
+            # Calculate already refunded quantities
+            refunded_qtys = {}
+            for existing_return in existing_returns:
+                for line in existing_return.gm_line_ids:
+                    product_id = line.gm_product_id.id
+                    if product_id not in refunded_qtys:
+                        refunded_qtys[product_id] = 0.0
+                    refunded_qtys[product_id] += abs(line.gm_qty)
+            
+            # Validate each line
+            for line in record.gm_line_ids:
+                product_id = line.gm_product_id.id
+                
+                original_line = pos_order.lines.filtered(
+                    lambda l: l.product_id.id == product_id
+                )
+                
+                if not original_line:
+                    raise ValidationError(
+                        f"Product '{line.gm_product_id.display_name}' not found in "
+                        f"POS Order {pos_order.name}."
+                    )
+                
+                original_qty = abs(original_line[0].qty)
+                already_refunded = refunded_qtys.get(product_id, 0.0)
+                remaining_qty = original_qty - already_refunded
+                requested_qty = abs(line.gm_qty)
+                
+                if requested_qty > remaining_qty:
+                    error_msg = (
+                        f"Cannot return {requested_qty} of {line.gm_product_id.display_name}. \n"
+                        f"Only {remaining_qty} remaining "
+                        f"(Original: {original_qty}, Already in return process: {already_refunded})\n\n"
+                        f"POS Order: {pos_order.name}"
+                    )
+                    
+                    if already_refunded > 0:
+                        existing_docs = existing_returns.filtered(
+                            lambda r: any(l.gm_product_id.id == product_id for l in r.gm_line_ids)
+                        )
+                        if existing_docs:
+                            error_msg += "\n\nExisting return approvals:"
+                            for doc in existing_docs:
+                                doc_line = doc.gm_line_ids.filtered(
+                                    lambda l: l.gm_product_id.id == product_id
+                                )
+                                if doc_line:
+                                    status = dict(self._fields['gm_status'].selection).get(doc.gm_status)
+                                    error_msg += f"\n- {doc.gm_doc_num} ({status}): {abs(doc_line[0].gm_qty)} qty"
+                    
+                    raise ValidationError(error_msg)
+    
+    @api.model
     def create(self, vals):
-        # ALWAYS get company_id from POS order (required field)
         if vals.get('gm_pos_order_id'):
             pos_order = self.env['pos.order'].browse(vals['gm_pos_order_id'])
             vals['company_id'] = pos_order.company_id.id
         elif not vals.get('company_id'):
-            # Fallback to current company only if no POS order specified
             vals['company_id'] = self.env.company.id
         
-        # Generate sequence per company
         if vals.get('gm_doc_num', 'New') == 'New':
             company_id = vals.get('company_id', self.env.company.id)
             vals['gm_doc_num'] = self.env['ir.sequence'].with_context(
                 force_company=company_id
             ).next_by_code('return.approval') or 'New'
         
-        return super(ReturnApproval, self).create(vals)
+        # Set initial status to waiting_approval_1 if not specified
+        if 'gm_status' not in vals:
+            vals['gm_status'] = 'waiting_approval_1'
+        
+        result = super(ReturnApproval, self).create(vals)
+        
+        # Post message about submission
+        if result.gm_status == 'waiting_approval_1':
+            result.message_post(
+                body=f"Return approval submitted by {result.gm_requested_by.name}",
+                subject="Return Approval Submitted"
+            )
+        
+        # Trigger notification to POS (for real-time update if needed)
+        if result.gm_pos_order_id:
+            self._notify_pos_refund_change(result.gm_pos_order_id.id)
+        
+        return result
     
-    def action_submit_approval(self):
-        """Submit for approval"""
-        self.ensure_one()
-        if self.gm_status != 'draft':
-            raise UserError("Only draft documents can be submitted for approval.")
+    def write(self, vals):
+        """Override write to track changes"""
+        result = super(ReturnApproval, self).write(vals)
         
-        if not self.gm_line_ids:
-            raise UserError("Please add at least one return line before submitting.")
+        # If status changed, notify POS
+        if 'gm_status' in vals:
+            for record in self:
+                if record.gm_pos_order_id:
+                    self._notify_pos_refund_change(record.gm_pos_order_id.id)
         
-        # Check if multi-level approval is enabled
-        config = self.env['res.config.settings'].sudo().get_values()
-        use_multi_level = config.get('gm_use_multi_level_approval', False)
+        return result
+    
+    def unlink(self):
+        """
+        Override unlink to:
+        1. Add validation
+        2. Trigger POS refresh after delete
+        """
+        # Store POS order IDs before deletion for notification
+        pos_order_ids = []
         
-        if use_multi_level:
-            self.gm_status = 'waiting_approval_2'
-        else:
-            self.gm_status = 'waiting_approval_1'
+        for record in self:
+            # Validation: cannot delete approved with refund order
+            if record.gm_status == 'approved' and record.gm_refund_order_id:
+                raise UserError(
+                    "Cannot delete approved return approval that has generated a refund order!\n"
+                    f"Return Approval: {record.gm_doc_num}\n"
+                    f"Refund Order: {record.gm_refund_order_id.name}"
+                )
+            
+            # Store POS order ID for notification
+            if record.gm_pos_order_id:
+                pos_order_ids.append(record.gm_pos_order_id.id)
         
-        self.message_post(
-            body=f"Return approval submitted by {self.env.user.name}",
-            subject="Return Approval Submitted"
-        )
+        # Perform deletion
+        result = super(ReturnApproval, self).unlink()
+        
+        # Notify POS about the change (trigger refresh)
+        for pos_order_id in set(pos_order_ids):
+            self._notify_pos_refund_change(pos_order_id)
+        
+        return result
+    
+    def _notify_pos_refund_change(self, pos_order_id):
+        """
+        Notify that refund data has changed for a POS order
+        This can be used for real-time updates or bus notifications
+        """
+        # Log the change for debugging
+        self.env['ir.logging'].sudo().create({
+            'name': 'Return Approval Change',
+            'type': 'server',
+            'dbname': self.env.cr.dbname,
+            'level': 'INFO',
+            'message': f'Refund data changed for POS Order ID: {pos_order_id}',
+            'path': 'return.approval',
+            'line': '1',
+            'func': '_notify_pos_refund_change'
+        })
+        
+        # Optional: Send bus notification for real-time update
+        try:
+            self.env['bus.bus']._sendone(
+                self.env.user.partner_id,
+                'pos.refund.update',
+                {
+                    'pos_order_id': pos_order_id,
+                    'timestamp': fields.Datetime.now().isoformat()
+                }
+            )
+        except:
+            pass  # Bus notification is optional
     
     def action_approve_level_1(self):
         """Approve Level 1"""
@@ -291,21 +519,38 @@ class ReturnApproval(models.Model):
         approval_notes = self.env.context.get('approval_notes', '')
         self._create_approval_history(1, 'approved', approval_notes)
         
-        # Update status
-        self.gm_status = 'approved'
-        self.gm_approval_date = fields.Datetime.now()
         self.gm_approval_by = [(4, self.env.user.id)]
         
-        # Create refund order with specific items
-        self._create_refund_order()
+        # Check if multi-level approval is enabled
+        ICP = self.env['ir.config_parameter'].sudo()
+        use_multi_level = ICP.get_param('return_approval.use_multi_level', default=False)
         
-        # Process payment and invoice
-        self._process_refund_payment_and_invoice()
+        # Convert string to boolean
+        if isinstance(use_multi_level, str):
+            use_multi_level = use_multi_level.lower() in ('true', '1', 'yes')
         
-        self.message_post(
-            body=f"Approved by {self.env.user.name} (Level 1)",
-            subject="Return Approval - Level 1 Approved"
-        )
+        if use_multi_level:
+            # Move to Level 2 approval
+            self.gm_status = 'waiting_approval_2'
+            self.message_post(
+                body=f"Approved by {self.env.user.name} (Level 1) - Waiting for Level 2 approval",
+                subject="Return Approval - Level 1 Approved"
+            )
+        else:
+            # Direct approval - create refund
+            self.gm_status = 'approved'
+            self.gm_approval_date = fields.Datetime.now()
+            
+            # Create refund order with specific items
+            self._create_refund_order()
+            
+            # Process payment and invoice
+            self._process_refund_payment_and_invoice()
+            
+            self.message_post(
+                body=f"Fully approved by {self.env.user.name} (Level 1 only)",
+                subject="Return Approval - Approved"
+            )
     
     def action_approve_level_2(self):
         """Approve Level 2"""
@@ -321,12 +566,19 @@ class ReturnApproval(models.Model):
         approval_notes = self.env.context.get('approval_notes', '')
         self._create_approval_history(2, 'approved', approval_notes)
         
-        # Update to Level 1 approval
-        self.gm_status = 'waiting_approval_1'
+        # Final approval - create refund
+        self.gm_status = 'approved'
+        self.gm_approval_date = fields.Datetime.now()
         self.gm_approval_by = [(4, self.env.user.id)]
         
+        # Create refund order with specific items
+        self._create_refund_order()
+        
+        # Process payment and invoice
+        self._process_refund_payment_and_invoice()
+        
         self.message_post(
-            body=f"Approved by {self.env.user.name} (Level 2)",
+            body=f"Fully approved by {self.env.user.name} (Level 2)",
             subject="Return Approval - Level 2 Approved"
         )
     
@@ -350,25 +602,32 @@ class ReturnApproval(models.Model):
         rejection_notes = self.env.context.get('approval_notes', '')
         self._create_approval_history(current_level, 'rejected', rejection_notes)
         
+        # Store POS order ID for notification (before status change)
+        pos_order_id = self.gm_pos_order_id.id
+        
         # Update status
         self.gm_status = 'rejected'
+        
+        # Notify POS about the change
+        if pos_order_id:
+            self._notify_pos_refund_change(pos_order_id)
         
         self.message_post(
             body=f"Rejected by {self.env.user.name} (Level {current_level})",
             subject=f"Return Approval - Level {current_level} Rejected"
         )
     
-    def action_reset_to_draft(self):
-        """Reset to draft for resubmission"""
+    def action_reset_to_waiting(self):
+        """Reset to waiting approval L1 for resubmission"""
         self.ensure_one()
         if self.gm_status != 'rejected':
-            raise UserError("Only rejected documents can be reset to draft.")
+            raise UserError("Only rejected documents can be reset.")
         
-        self.gm_status = 'draft'
+        self.gm_status = 'waiting_approval_1'
         self.gm_approval_by = [(5, 0, 0)]  # Clear all approved users
         
         self.message_post(
-            body=f"Reset to draft by {self.env.user.name}",
+            body=f"Reset to Waiting Approval L1 by {self.env.user.name}",
             subject="Return Approval Reset"
         )
     
@@ -434,6 +693,11 @@ class ReturnApproval(models.Model):
             price_subtotal = qty * price_unit
             price_subtotal_incl = price_subtotal
             
+            # Get tax_ids from product
+            product_tax_ids = return_line.gm_product_id.taxes_id.filtered(
+                lambda t: t.company_id.id == self.company_id.id
+            )
+            
             # Calculate tax
             if original_line.tax_ids_after_fiscal_position:
                 taxes = original_line.tax_ids_after_fiscal_position.compute_all(
@@ -449,7 +713,7 @@ class ReturnApproval(models.Model):
             
             total_amount += price_subtotal_incl
             
-            # Create refund line
+            # Create refund line with both tax_ids and tax_ids_after_fiscal_position
             refund_line_vals = {
                 'product_id': return_line.gm_product_id.id,
                 'qty': qty,
@@ -457,6 +721,7 @@ class ReturnApproval(models.Model):
                 'price_subtotal': price_subtotal,
                 'price_subtotal_incl': price_subtotal_incl,
                 'discount': original_line.discount,
+                'tax_ids': [(6, 0, product_tax_ids.ids)],  # Tax dari product
                 'tax_ids_after_fiscal_position': [(6, 0, original_line.tax_ids_after_fiscal_position.ids)],
                 'full_product_name': return_line.gm_product_id.display_name,
                 'refunded_orderline_id': original_line.id,
@@ -494,7 +759,7 @@ class ReturnApproval(models.Model):
         
         # Find refund payment method
         refund_payment_method = self.env['pos.payment.method'].search([
-            ('is_refund', '=', True),
+            ('gm_is_refund', '=', True),
             ('config_ids', 'in', refund_order.session_id.config_id.id)
         ], limit=1)
         
@@ -643,6 +908,7 @@ class ReturnApprovalLine(models.Model):
             if line.gm_qty <= 0:
                 raise ValidationError("Quantity must be greater than zero.")
             
+
 class ReturnApprovalHistory(models.Model):
     _name = 'return.approval.history'
     _description = "Return Approval History"

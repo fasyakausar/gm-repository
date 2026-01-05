@@ -8,8 +8,7 @@
             <tree string="Return Approvals" 
                   decoration-warning="gm_status in ('waiting_approval_1', 'waiting_approval_2')"
                   decoration-success="gm_status == 'approved'"
-                  decoration-danger="gm_status == 'rejected'"
-                  decoration-muted="gm_status == 'draft'">
+                  decoration-danger="gm_status == 'rejected'">
                 <field name="gm_doc_num" decoration-bf="1"/>
                 <field name="company_id" groups="base.group_multi_company"/>
                 <field name="gm_creation_date"/>
@@ -21,8 +20,7 @@
                 <field name="gm_status" widget="badge" 
                        decoration-warning="gm_status in ('waiting_approval_1', 'waiting_approval_2')"
                        decoration-success="gm_status == 'approved'"
-                       decoration-danger="gm_status == 'rejected'"
-                       decoration-info="gm_status == 'draft'"/>
+                       decoration-danger="gm_status == 'rejected'"/>
                 <field name="gm_approval_date" optional="hide"/>
             </tree>
         </field>
@@ -35,11 +33,7 @@
         <field name="arch" type="xml">
             <form string="Return Approval">
                 <header>
-                    <button name="action_submit_approval" 
-                            string="Submit for Approval" 
-                            type="object" 
-                            class="oe_highlight"
-                            invisible="gm_status != 'draft'"/>
+                    <!-- Removed Submit for Approval button - documents are created directly in waiting_approval_1 status -->
                     
                     <button name="%(action_return_approval_wizard)d" 
                             string="Approve (L2)" 
@@ -64,13 +58,14 @@
                             groups="dev_pos.group_return_approval_level_1,dev_pos.group_return_approval_level_2"
                             context="{'default_action': 'reject'}"/>
                     
-                    <button name="action_reset_to_draft" 
-                            string="Reset to Draft" 
+                    <button name="action_reset_to_waiting" 
+                            string="Reset to Waiting" 
                             type="object"
                             invisible="gm_status != 'rejected'"/>
                     
+                    <!-- Updated statusbar without 'draft' status -->
                     <field name="gm_status" widget="statusbar" 
-                           statusbar_visible="draft,waiting_approval_2,waiting_approval_1,approved"/>
+                           statusbar_visible="waiting_approval_1,waiting_approval_2,approved"/>
                 </header>
                 
                 <sheet>
@@ -100,7 +95,7 @@
                         <group string="Request Information">
                             <field name="company_id" groups="base.group_multi_company" 
                                    options="{'no_create': True}"
-                                   readonly="gm_status != 'draft'"/>
+                                   readonly="1"/>
                             <field name="gm_requested_by" readonly="1"/>
                             <field name="gm_creation_date" readonly="1"/>
                             <field name="gm_pos_order_id" readonly="1"/>
@@ -112,33 +107,34 @@
                             <field name="gm_approval_by" widget="many2many_tags" readonly="1"/>
                             <field name="gm_approval_date" readonly="1"/>
                             <field name="gm_refund_order_id" readonly="1" invisible="not gm_refund_order_id"/>
-                            <field name="gm_total_amount" widget="monetary"/>
+                            <field name="gm_total_amount" widget="monetary" readonly="1"/>
                         </group>
                     </group>
                     
                     <notebook>
                         <page string="Return Items" name="lines">
                             <field name="gm_currency_id" invisible="1"/>
-                            <field name="gm_line_ids">
-                                <tree string="Return Lines" editable="bottom">
-                                    <field name="gm_product_id" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
-                                    <field name="gm_description" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
-                                    <field name="gm_qty" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
-                                    <field name="gm_uom_id" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
-                                    <field name="gm_price_unit" widget="monetary" options="{'currency_field': 'parent.gm_currency_id'}" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
-                                    <field name="gm_subtotal" widget="monetary" options="{'currency_field': 'parent.gm_currency_id'}" readonly="parent.gm_status in ('waiting_approval_1', 'waiting_approval_2', 'approved', 'rejected')"/>
+                            <field name="gm_line_ids" readonly="1">
+                                <tree string="Return Lines">
+                                    <field name="gm_product_id"/>
+                                    <field name="gm_description"/>
+                                    <field name="gm_qty"/>
+                                    <field name="gm_uom_id"/>
+                                    <field name="gm_price_unit" widget="monetary" options="{'currency_field': 'parent.gm_currency_id'}"/>
+                                    <field name="gm_subtotal" widget="monetary" options="{'currency_field': 'parent.gm_currency_id'}"/>
                                 </tree>
                             </field>
                             <group class="oe_subtotal_footer oe_right" colspan="2" name="return_total">
                                 <field name="gm_total_amount" widget="monetary" 
                                        class="oe_subtotal_footer_separator"
-                                       options="{'currency_field': 'gm_currency_id'}"/>
+                                       options="{'currency_field': 'gm_currency_id'}"
+                                       readonly="1"/>
                             </group>
                             <div class="oe_clear"/>
                         </page>
                         
                         <page string="Return Reason" name="return_reason">
-                            <field name="gm_return_reason" nolabel="1" placeholder="Please describe the reason for return..."/>
+                            <field name="gm_return_reason" nolabel="1" placeholder="Please describe the reason for return..." readonly="1"/>
                         </page>
                         
                         <page string="Approval History" name="history">
@@ -171,11 +167,12 @@
         <field name="arch" type="xml">
             <kanban class="o_kanban_mobile">
                 <field name="gm_doc_num"/>
-                <field name="company_id"/>
                 <field name="gm_status"/>
                 <field name="gm_requested_by"/>
                 <field name="gm_creation_date"/>
                 <field name="gm_total_amount"/>
+                <field name="gm_currency_id"/>
+                <field name="company_id"/>
                 <templates>
                     <t t-name="kanban-box">
                         <div class="oe_kanban_global_click">
@@ -190,7 +187,6 @@
                                 </div>
                                 <field name="gm_status" widget="label_selection" 
                                        options="{'classes': {
-                                           'draft': 'secondary',
                                            'waiting_approval_1': 'warning',
                                            'waiting_approval_2': 'info',
                                            'approved': 'success',
@@ -204,7 +200,7 @@
                                 </div>
                                 <div class="mt-2">
                                     <strong>Amount: </strong>
-                                    <field name="gm_total_amount" widget="monetary"/>
+                                    <field name="gm_total_amount" widget="monetary" options="{'currency_field': 'gm_currency_id'}"/>
                                 </div>
                             </div>
                         </div>
@@ -234,7 +230,7 @@
                         domain="[('gm_status', '=', 'waiting_approval_2')]"/>
                 
                 <separator/>
-                <filter string="Draft" name="draft" domain="[('gm_status', '=', 'draft')]"/>
+                <!-- Removed Draft filter since there's no draft status anymore -->
                 <filter string="Waiting Approval" name="waiting" 
                         domain="[('gm_status', 'in', ('waiting_approval_1', 'waiting_approval_2'))]"/>
                 <filter string="Approved" name="approved" domain="[('gm_status', '=', 'approved')]"/>
@@ -266,6 +262,7 @@
             </p>
             <p>
                 Return approvals are created from POS orders when cashiers request refunds.
+                They are automatically submitted for approval upon creation.
             </p>
         </field>
     </record>

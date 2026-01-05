@@ -9,6 +9,7 @@
         <xpath expr="//div[@name='journal_div']" position="after">
           <field name="is_integrated"/>
           <field name="vit_trxid"/>
+          <field name="gm_is_dp"/>
         </xpath>
         <xpath expr="//form[1]/sheet[1]/notebook[1]/page[@name='invoice_tab']/field[@name='invoice_line_ids']/tree[1]/field[@name='name']" position="after">
           <field optional="show" name="user_id"/>

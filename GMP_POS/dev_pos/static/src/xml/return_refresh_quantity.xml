@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="point_of_sale.TicketScreen" t-inherit="point_of_sale.TicketScreen" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('controls')]//SearchBar" position="after">
+            <button class="btn btn-secondary ms-2" 
+                    t-if="getSelectedOrder() and getSelectedOrder().locked" 
+                    t-on-click="_onRefreshClick"
+                    title="Refresh refund status from server">
+                <i class="fa fa-refresh"/> Refresh
+            </button>
+        </xpath>
+    </t>
+
+</templates>

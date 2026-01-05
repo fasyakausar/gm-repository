@@ -26,10 +26,31 @@ export class DbNameNavbar extends Component {
         window.location.reload();
     }
 
-    // ✅ Method untuk reset cache browser dan refresh
+    // ✅ Method untuk hapus semua cookies
+    clearAllCookies() {
+        const cookies = document.cookie.split(";");
+        
+        for (let i = 0; i < cookies.length; i++) {
+            const cookie = cookies[i];
+            const eqPos = cookie.indexOf("=");
+            const name = eqPos > -1 ? cookie.substr(0, eqPos).trim() : cookie.trim();
+            
+            // Hapus cookie untuk domain saat ini
+            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/";
+            
+            // Hapus cookie untuk subdomain
+            const domain = window.location.hostname;
+            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=" + domain;
+            document.cookie = name + "=;expires=Thu, 01 Jan 1970 00:00:00 GMT;path=/;domain=." + domain;
+        }
+        
+        console.log("All cookies cleared");
+    }
+
+    // ✅ Method untuk reset cache, cookies, dan refresh
     async resetCacheAndRefresh() {
         try {
-            // Hapus cache service worker (jika ada)
+            // 1. Hapus cache service worker (jika ada)
             if ('caches' in window) {
                 const cacheNames = await caches.keys();
                 await Promise.all(
@@ -38,17 +59,20 @@ export class DbNameNavbar extends Component {
                 console.log("Browser cache cleared");
             }
 
-            // Hapus localStorage dan sessionStorage
+            // 2. Hapus localStorage dan sessionStorage
             localStorage.clear();
             sessionStorage.clear();
             console.log("Local storage and session storage cleared");
 
-            // Hapus cache Odoo khusus (jika ada)
+            // 3. Hapus semua cookies
+            this.clearAllCookies();
+
+            // 4. Hapus cache Odoo khusus (jika ada)
             if (window.odoo && window.odoo.debug) {
                 window.odoo.debug.clearCache();
             }
 
-            // Refresh browser setelah membersihkan cache
+            // 5. Refresh browser setelah membersihkan cache
             setTimeout(() => {
                 window.location.reload();
             }, 500);

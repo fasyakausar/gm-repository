@@ -1496,7 +1496,7 @@ class POSTMasterCustomer(http.Controller):
                             continue
 
                     # =====================================
-                    # NEW: CUSTOMER RANK & SUPPLIER RANK
+                    # CUSTOMER RANK & SUPPLIER RANK
                     # =====================================
                     try:
                         customer_rank = int(data_item.get('customer_rank', 0) or 0)
@@ -1514,6 +1514,17 @@ class POSTMasterCustomer(http.Controller):
                             'id': None
                         })
                         continue
+
+                    # =====================================
+                    # IS_INTEGRATED (Boolean validation)
+                    # =====================================
+                    is_integrated = data_item.get('is_integrated', False)
+                    if not isinstance(is_integrated, bool):
+                        # Try to convert string to boolean
+                        if isinstance(is_integrated, str):
+                            is_integrated = is_integrated.lower() in ['true', '1', 'yes']
+                        else:
+                            is_integrated = bool(is_integrated)
 
                     # Loop through all companies
                     for company in companies:
@@ -1539,9 +1550,12 @@ class POSTMasterCustomer(http.Controller):
                                 'mobile': data_item.get('mobile'),
                                 'website': data_item.get('website'),
 
-                                # NEW RANK FIELDS
+                                # RANK FIELDS
                                 'customer_rank': customer_rank,
                                 'supplier_rank': supplier_rank,
+
+                                # IS_INTEGRATED FIELD
+                                'is_integrated': is_integrated,
 
                                 'company_id': company.id,
                             }
@@ -1601,6 +1615,7 @@ class POSTMasterCustomer(http.Controller):
                                     'company_name': company.name,
                                     'customer_rank': existing.customer_rank,
                                     'supplier_rank': existing.supplier_rank,
+                                    'is_integrated': existing.is_integrated,
                                     'action': 'updated'
                                 })
                             else:
@@ -1616,6 +1631,7 @@ class POSTMasterCustomer(http.Controller):
                                     'company_name': company.name,
                                     'customer_rank': customer.customer_rank,
                                     'supplier_rank': customer.supplier_rank,
+                                    'is_integrated': customer.is_integrated,
                                     'action': 'created'
                                 })
 
@@ -1654,8 +1670,6 @@ class POSTMasterCustomer(http.Controller):
                 'code': 500,
                 'message': f"Failed to process customers: {str(e)}"
             }
-
-
 
 class MasterCustomerPATCH(http.Controller):
     @http.route(['/api/master_customer'], type='json', auth='none', methods=['PATCH'], csrf=False)
@@ -1696,26 +1710,52 @@ class MasterCustomerPATCH(http.Controller):
                         errors.append({'customer_code': None, 'message': "Missing customer_code"})
                         continue
 
+                    # ✅ Validate company_name (REQUIRED)
+                    company_name = data.get('company_name')
+                    if not company_name:
+                        errors.append({
+                            'customer_code': customer_code,
+                            'message': "Missing required field: company_name"
+                        })
+                        continue
+
+                    # ✅ Validate company exists
+                    company = request.env['res.company'].sudo().search(
+                        [('name', '=', company_name)], limit=1
+                    )
+                    if not company:
+                        errors.append({
+                            'customer_code': customer_code,
+                            'message': f"Company '{company_name}' not found"
+                        })
+                        continue
+
                     # ✅ Validate vit_customer_group if group pricelist is enabled
                     if group_pricelist_enabled and 'vit_customer_group' in data:
                         vit_customer_group = data.get('vit_customer_group')
                         if vit_customer_group:
                             # Validate customer group exists
-                            customer_group = request.env['customer.group'].sudo().browse(vit_customer_group)
-                            if not customer_group.exists():
+                            customer_group = request.env['customer.group'].sudo().search([
+                                ('id', '=', vit_customer_group),
+                                ('company_id', '=', company.id)
+                            ], limit=1)
+                            if not customer_group:
                                 errors.append({
                                     'customer_code': customer_code,
-                                    'message': f"Customer group ID {vit_customer_group} not found"
+                                    'message': f"Customer group ID {vit_customer_group} not found for company '{company_name}'"
                                 })
                                 continue
 
-                    master_customer = request.env['res.partner'].sudo().search(
-                        [('customer_code', '=', customer_code)], limit=1
-                    )
+                    # Search customer with customer_code and company_id
+                    master_customer = request.env['res.partner'].sudo().search([
+                        ('customer_code', '=', customer_code),
+                        ('company_id', '=', company.id)
+                    ], limit=1)
+                    
                     if not master_customer:
                         errors.append({
                             'customer_code': customer_code,
-                            'message': "Customer not found."
+                            'message': f"Customer not found for company '{company_name}'"
                         })
                         continue
 
@@ -1733,13 +1773,17 @@ class MasterCustomerPATCH(http.Controller):
                     if 'property_product_pricelist' in data:
                         pricelist_id = data['property_product_pricelist']
                         if pricelist_id:
-                            pricelist = request.env['product.pricelist'].sudo().browse(pricelist_id)
-                            if pricelist.exists():
+                            # Validate pricelist exists and belongs to the same company
+                            pricelist = request.env['product.pricelist'].sudo().search([
+                                ('id', '=', pricelist_id),
+                                ('company_id', '=', company.id)
+                            ], limit=1)
+                            if pricelist:
                                 update_data['property_product_pricelist'] = pricelist_id
                             else:
                                 errors.append({
                                     'customer_code': customer_code,
-                                    'message': f"Pricelist ID {pricelist_id} not found"
+                                    'message': f"Pricelist ID {pricelist_id} not found for company '{company_name}'"
                                 })
                                 continue
                         else:
@@ -1764,6 +1808,8 @@ class MasterCustomerPATCH(http.Controller):
                         'id': master_customer.id,
                         'customer_code': master_customer.customer_code,
                         'name': master_customer.name,
+                        'company_id': master_customer.company_id.id if master_customer.company_id else None,
+                        'company_name': master_customer.company_id.name if master_customer.company_id else None,
                         'vit_customer_group': master_customer.vit_customer_group.id if master_customer.vit_customer_group else None,
                         'property_product_pricelist': master_customer.property_product_pricelist.id if master_customer.property_product_pricelist else None,
                         'status': 'success'
@@ -1838,6 +1884,7 @@ class POSTMasterWarehouse(http.Controller):
                 name = item.get('name')
                 company_name = item.get('company_name')
                 transit_location_name = item.get('transit_location')
+                is_transit = item.get('is_transit', '').lower() in ['yes', 'y', 'true', '1']
 
                 # Validasi required fields
                 if not code:
@@ -1949,6 +1996,11 @@ class POSTMasterWarehouse(http.Controller):
                     if existing:
                         # UPDATE
                         existing.write(values)
+                        
+                        # Update usage transit location jika is_transit = yes
+                        if is_transit and existing.location_transit:
+                            existing.location_transit.write({'usage': 'transit'})
+                        
                         env.cr.commit()
                         
                         updated.append({
@@ -1958,12 +2010,18 @@ class POSTMasterWarehouse(http.Controller):
                             'company_id': company.id,
                             'company_name': company.name,
                             'transit_location': existing.location_transit.complete_name if existing.location_transit else None,
+                            'transit_location_usage': existing.location_transit.usage if existing.location_transit else None,
                             'action': "updated"
                         })
                     else:
                         # CREATE
                         values['create_uid'] = uid
                         wh = env['stock.warehouse'].sudo().create(values)
+                        
+                        # Set usage transit location jika is_transit = yes
+                        if is_transit and wh.location_transit:
+                            wh.location_transit.write({'usage': 'transit'})
+                        
                         env.cr.commit()
                         
                         created.append({
@@ -1973,6 +2031,7 @@ class POSTMasterWarehouse(http.Controller):
                             'company_id': company.id,
                             'company_name': company.name,
                             'transit_location': wh.location_transit.complete_name if wh.location_transit else None,
+                            'transit_location_usage': wh.location_transit.usage if wh.location_transit else None,
                             'action': "created"
                         })
 
@@ -2694,7 +2753,106 @@ class POSTPurchaseOrderFromSAP(http.Controller):
             env = request.env
             data = request.get_json_data()
             
-            # ✅ Validasi input fields yang required
+            # ✅ Cek apakah ini request untuk close PO
+            transaction_id = data.get('transaction_id')
+            close_po = data.get('close_po')
+            
+            # ✅ SCENARIO 1: Update PO (Close PO) - hanya butuh transaction_id dan close_po
+            if close_po is not None:
+                # Validasi required fields untuk close
+                if not transaction_id:
+                    return {
+                        'status': "Failed",
+                        'code': 400,
+                        'message': "Missing required field: transaction_id"
+                    }
+                
+                # Validasi close_po harus boolean
+                if not isinstance(close_po, bool):
+                    return {
+                        'status': "Failed",
+                        'code': 400,
+                        'message': "Invalid data: close_po must be a boolean"
+                    }
+                
+                # Cari PO berdasarkan transaction_id
+                purchase_order = env['purchase.order'].sudo().search([
+                    ('vit_trxid', '=', transaction_id)
+                ], limit=1)
+                
+                if not purchase_order:
+                    return {
+                        'code': 404,
+                        'status': 'error',
+                        'message': 'Purchase Order not found',
+                        'transaction_id': transaction_id
+                    }
+                
+                # Jika close_po = true, jalankan button_done
+                # Jika close_po = true, jalankan button_done
+                if close_po:
+                    try:
+                        purchase_order.button_done()
+                        purchase_order.write({'write_uid': uid})
+                        
+                        # ✅ TAMBAHAN: Auto cancel receipt yang ready
+                        picking_ids = env['stock.picking'].sudo().search([
+                            ('purchase_id', '=', purchase_order.id),
+                            ('state', 'in', ['assigned', 'confirmed', 'waiting'])  # Status yang belum done
+                        ])
+                        
+                        cancelled_receipts = []
+                        if picking_ids:
+                            for picking in picking_ids:
+                                try:
+                                    picking.action_cancel()  # Cancel receipt
+                                    cancelled_receipts.append(picking.name)
+                                    _logger.info(f"Receipt {picking.name} cancelled successfully")
+                                except Exception as pick_error:
+                                    _logger.warning(f"Failed to cancel receipt {picking.name}: {str(pick_error)}")
+                        
+                        return {
+                            'code': 200,
+                            'status': 'success',
+                            'message': 'Purchase Order closed successfully',
+                            'data': {
+                                'id': purchase_order.id,
+                                'doc_num': purchase_order.name,
+                                'company_name': purchase_order.company_id.name,
+                                'transaction_id': transaction_id,
+                                'state': purchase_order.state,
+                                'close_po': close_po,
+                                'receipts_cancelled': cancelled_receipts
+                            }
+                        }
+                    except Exception as e:
+                        _logger.error(f"Failed to close PO {purchase_order.name}: {str(e)}")
+                        return {
+                            'code': 500,
+                            'status': 'error',
+                            'message': f'Failed to close Purchase Order: {str(e)}',
+                            'transaction_id': transaction_id
+                        }
+                else:
+                    # close_po = false, hanya update write_uid
+                    purchase_order.write({'write_uid': uid})
+                    
+                    return {
+                        'code': 200,
+                        'status': 'success',
+                        'message': 'Purchase Order updated successfully',
+                        'data': {
+                            'id': purchase_order.id,
+                            'doc_num': purchase_order.name,
+                            'company_name': purchase_order.company_id.name,
+                            'transaction_id': transaction_id,
+                            'state': purchase_order.state,
+                            'close_po': close_po
+                        }
+                    }
+            
+            # ✅ SCENARIO 2: Create PO baru - butuh semua field lengkap
+            # Validasi input fields yang required untuk create
             required_fields = ['company_name', 'customer_code', 'currency_id', 
                              'date_order', 'transaction_id', 'expected_arrival', 'picking_type', 
                              'location_id', 'order_line']
@@ -2709,10 +2867,9 @@ class POSTPurchaseOrderFromSAP(http.Controller):
 
             company_name = data['company_name']
             customer_code = data['customer_code']
-            vendor_reference = data['vendor_reference']
+            vendor_reference = data.get('vendor_reference')
             currency_name = data['currency_id']
             date_order = data['date_order']
-            transaction_id = data['transaction_id']
             expected_arrival = data['expected_arrival']
             picking_type_name = data['picking_type']
             location_id = data['location_id']
@@ -2743,7 +2900,8 @@ class POSTPurchaseOrderFromSAP(http.Controller):
                     'data': {
                         'id': existing_po.id,
                         'doc_num': existing_po.name,
-                        'company_name': existing_po.company_id.name
+                        'company_name': existing_po.company_id.name,
+                        'state': existing_po.state
                     }
                 }
 
@@ -2941,15 +3099,17 @@ class POSTPurchaseOrderFromSAP(http.Controller):
                 'data': {
                     'id': purchase_order.id,
                     'doc_num': purchase_order.name,
-                    'company_name': purchase_order.company_id.name
+                    'company_name': purchase_order.company_id.name,
+                    'transaction_id': transaction_id,
+                    'state': purchase_order.state
                 }
             }
 
         except Exception as e:
             request.env.cr.rollback()
-            _logger.error(f"Failed to create Purchase Order: {str(e)}", exc_info=True)
+            _logger.error(f"Failed to process Purchase Order: {str(e)}", exc_info=True)
             return {
                 'status': "Failed",
                 'code': 500,
-                'message': f"Failed to create Purchase Order: {str(e)}"
+                'message': f"Failed to process Purchase Order: {str(e)}"
             }

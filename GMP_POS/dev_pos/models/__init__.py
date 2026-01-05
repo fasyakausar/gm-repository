@@ -51,3 +51,4 @@ from . import return_approval
 from . import loyalty_generate_wizard
 from . import pos_order_debug
 from . import fix_gift_card
+from . import is_dp
