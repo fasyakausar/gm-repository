@@ -131,6 +131,24 @@ class ResPartner(models.Model):
     @api.model
     def create(self, vals):
         """Auto fill pricelist when creating partner with customer group"""
+        # Auto-fill company_id if not provided
+        if not vals.get('company_id'):
+            # Try to get company from context
+            company_id = self.env.context.get('company_id')
+            
+            if not company_id:
+                # Get default company from current user
+                company_id = self.env.company.id
+            
+            if not company_id:
+                # Fallback: get first active company
+                company = self.env['res.company'].search([('active', '=', True)], limit=1)
+                if company:
+                    company_id = company.id
+            
+            if company_id:
+                vals['company_id'] = company_id
+        
         if 'vit_customer_group' in vals and vals['vit_customer_group']:
             # Cari customer group berdasarkan vit_group_name
             customer_group = self.env['customer.group'].search([
@@ -139,5 +157,29 @@ class ResPartner(models.Model):
             
             if customer_group and customer_group.vit_pricelist_id and 'property_product_pricelist' not in vals:
                 vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
+        
+        # Auto-generate customer_code if not provided
+        if not vals.get('customer_code'):
+            name = vals.get('name')
+            mobile = vals.get('mobile')
+            record_employee = self.env['hr.employee'].search([], order="id desc", limit=1)
+            employee_name = record_employee.name if record_employee else ''
+            employee_mobile_phone = record_employee.mobile_phone if record_employee else ''
+
+            # Fetch system config for prefix flag
+            validate_prefix = self.env['ir.config_parameter'].sudo().get_param('pos.validate_prefix_customer') == 'True'
+
+            # Fetch warehouse prefix or fallback
+            warehouse_name = 'VIT'
+            warehouse = self.env['stock.warehouse'].search([], limit=1)
+            if warehouse:
+                warehouse_name = warehouse.prefix_code if (validate_prefix and warehouse.prefix_code) else warehouse.code or 'VIT'
+
+            # Check different conditions
+            if name != employee_name or (name == employee_name and mobile != employee_mobile_phone):
+                sequence_code = 'res.partner.customer.code'
+                customer_code_seq = self.env['ir.sequence'].next_by_code(sequence_code)
+                if customer_code_seq:
+                    vals['customer_code'] = f"{warehouse_name}{customer_code_seq}"
         
         return super(ResPartner, self).create(vals)

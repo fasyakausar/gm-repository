@@ -73,15 +73,37 @@ class PosOrder(models.Model):
     def confirm_coupon_programs(self, coupon_data):
         """
         ✅ FIXED: Gift card balance TIDAK DIBAGI - setiap card dapat nilai penuh
+        ✅ FIXED: Simpan customer POS yang membeli gift card ke partner_id
         """
         _logger.info("="*80)
         _logger.info("🎁 START confirm_coupon_programs - ORDER: %s", self.name)
         _logger.info("🎁 Order ID: %s, Amount Total: %s, Amount Paid: %s", 
                     self.id, self.amount_total, self.amount_paid)
         
-        # Helper function
+        # ✅ GET CUSTOMER FROM ORDER
+        order_partner_id = self.partner_id.id if self.partner_id else False
+        _logger.info("🎁 Order Customer (partner_id): %s - %s", 
+                    order_partner_id, 
+                    self.partner_id.name if self.partner_id else 'No Customer')
+        
+        # Helper function - MODIFIED to use order partner
         def get_partner_id(partner_id):
-            return partner_id and self.env['res.partner'].browse(partner_id).exists() and partner_id or False
+            """
+            ✅ PRIORITY:
+            1. Use partner_id from parameter if exists
+            2. Use order partner_id
+            3. Return False
+            """
+            if partner_id:
+                partner = self.env['res.partner'].browse(partner_id).exists()
+                if partner:
+                    return partner_id
+            
+            # Fallback to order partner
+            if order_partner_id:
+                return order_partner_id
+            
+            return False
         
         # Convert keys to int
         coupon_data = {int(k): v for k, v in coupon_data.items()} if coupon_data else {}
@@ -107,12 +129,10 @@ class PosOrder(models.Model):
         _logger.info("🎁 Gift card lines found: %s", len(gift_card_lines))
         
         # Buat list nilai gift card TANPA membagi dengan qty
-        # Setiap gift card mendapat nilai penuh dari line
         gift_card_amounts = []
         
         for line in gift_card_lines:
             # ✅ KUNCI: Gunakan price_subtotal_incl langsung TANPA dibagi qty
-            # Setiap card dapat nilai penuh
             line_amount = abs(line.price_subtotal_incl)
             
             _logger.info("🎁 Gift Card Line: %s", line.product_id.name)
@@ -125,25 +145,25 @@ class PosOrder(models.Model):
             for i in range(int(line.qty)):
                 gift_card_amounts.append({
                     'program_id': line.reward_id.program_id.id,
-                    'amount': line_amount,  # ✅ NILAI PENUH, TIDAK DIBAGI
+                    'amount': line_amount,
                     'line_id': line.id,
                     'index': i + 1
                 })
         
         _logger.info("🎁 Total gift card amounts: %s", len(gift_card_amounts))
-        for idx, gc in enumerate(gift_card_amounts, 1):
-            _logger.info("   %s. Program ID: %s | Amount: Rp. {:,.2f}".format(gc['amount']), 
-                        idx, gc['program_id'])
         
         # ============================================================
-        # ✅ BUAT COUPON DENGAN NILAI PENUH
+        # ✅ BUAT COUPON DENGAN NILAI PENUH DAN CUSTOMER
         # ============================================================
         coupon_create_vals = []
-        gift_card_index = 0  # Index untuk mapping
+        gift_card_index = 0
         
         for key, p in coupons_to_create.items():
             program_id = p.get('program_id')
             points = 0
+            
+            # ✅ Determine partner_id for this coupon
+            coupon_partner_id = get_partner_id(p.get('partner_id', False))
             
             if program_id:
                 program = self.env['loyalty.program'].browse(program_id)
@@ -151,9 +171,6 @@ class PosOrder(models.Model):
                 if program.program_type == 'gift_card':
                     # ✅ Ambil nilai dari mapping (NILAI PENUH)
                     if gift_card_index < len(gift_card_amounts):
-                        gift_card_data = gift_card_amounts[gift_card_index]
-                        
-                        # Cari yang program_id-nya cocok
                         matching_found = False
                         for idx in range(gift_card_index, len(gift_card_amounts)):
                             if gift_card_amounts[idx]['program_id'] == program_id:
@@ -166,10 +183,8 @@ class PosOrder(models.Model):
                         
                         if not matching_found:
                             _logger.warning("⚠️ No matching gift card found for program %s", program_id)
-                            # Fallback: gunakan amount_paid
                             points = self.amount_paid
                     else:
-                        # Fallback jika index melebihi
                         _logger.warning("⚠️ Gift card index exceeded, using amount_paid")
                         points = self.amount_paid
                     
@@ -179,17 +194,20 @@ class PosOrder(models.Model):
                     _logger.info("✅ Creating Gift Card:")
                     _logger.info("   Program: %s", program.name)
                     _logger.info("   Balance: Rp. {:,.2f} (NILAI PENUH)".format(points))
+                    _logger.info("   Customer: %s (ID: %s)", 
+                                self.env['res.partner'].browse(coupon_partner_id).name if coupon_partner_id else 'No Customer',
+                                coupon_partner_id)
             
             coupon_create_vals.append({
                 'program_id': program_id,
-                'partner_id': get_partner_id(p.get('partner_id', False)),
+                'partner_id': coupon_partner_id,  # ✅ SET CUSTOMER
                 'code': p.get('barcode') or self.env['loyalty.card']._generate_code(),
                 'points': points,
                 'expiration_date': p.get('date_to', False),
                 'source_pos_order_id': self.id,
             })
         
-        _logger.info("🎁 Creating %s coupons with full values", len(coupon_create_vals))
+        _logger.info("🎁 Creating %s coupons with full values and customers", len(coupon_create_vals))
         
         # ============================================================
         # CREATE COUPONS
@@ -197,17 +215,17 @@ class PosOrder(models.Model):
         new_coupons = self.env['loyalty.card'].with_context(action_no_send_mail=True).sudo().create(coupon_create_vals)
         
         _logger.info("="*80)
-        _logger.info("✅ CREATED %s GIFT CARDS WITH FULL VALUES:", len(new_coupons))
+        _logger.info("✅ CREATED %s GIFT CARDS WITH FULL VALUES AND CUSTOMERS:", len(new_coupons))
         _logger.info("="*80)
         for idx, coupon in enumerate(new_coupons, 1):
-            _logger.info("   %s. Code: %s | Balance: Rp. {:,.2f}".format(coupon.points), 
-                        idx, coupon.code)
+            _logger.info("   %s. Code: %s | Balance: Rp. {:,.2f} | Customer: %s".format(coupon.points), 
+                        idx, coupon.code, coupon.partner_id.name if coupon.partner_id else 'No Customer')
         
         # ============================================================
         # SAVE GIFT CARD CODE
         # ============================================================
         gift_card_codes = []
-        gift_card_code_str = ''  # ✅ Initialize variable
+        gift_card_code_str = ''
         
         for coupon in new_coupons:
             if coupon.program_id.program_type == 'gift_card':
@@ -229,19 +247,27 @@ class PosOrder(models.Model):
             _logger.info("✅ Gift card codes saved: %s", gift_card_code_str)
         
         # ============================================================
-        # UPDATE EXISTING GIFT CARDS
+        # UPDATE EXISTING GIFT CARDS - ✅ INCLUDE PARTNER_ID
         # ============================================================
         gift_cards_to_update = [v for v in coupon_data.values() if v.get('giftCardId')]
         updated_gift_cards = self.env['loyalty.card']
         
         for coupon_vals in gift_cards_to_update:
             gift_card = self.env['loyalty.card'].browse(coupon_vals.get('giftCardId'))
-            gift_card.write({
+            
+            # ✅ Update partner_id juga untuk existing gift cards
+            update_vals = {
                 'points': coupon_vals['points'],
                 'source_pos_order_id': self.id,
                 'partner_id': get_partner_id(coupon_vals.get('partner_id', False)),
-            })
+            }
+            
+            gift_card.write(update_vals)
             updated_gift_cards |= gift_card
+            
+            _logger.info("✅ Updated existing gift card: %s | Customer: %s", 
+                        gift_card.code, 
+                        gift_card.partner_id.name if gift_card.partner_id else 'No Customer')
         
         # ============================================================
         # MAP NEW COUPONS
@@ -266,7 +292,6 @@ class PosOrder(models.Model):
                 is_gift_card = coupon.program_id.program_type == 'gift_card'
                 
                 # ✅ PENTING: Jangan tambahkan points untuk gift card yang baru dibuat
-                # Points sudah di-set saat create
                 if not (is_newly_created and is_gift_card):
                     coupon.points += coupon_data[old_id]['points']
             
@@ -317,7 +342,7 @@ class PosOrder(models.Model):
         }
         
         _logger.info("="*80)
-        _logger.info("✅ confirm_coupon_programs COMPLETED - ALL GIFT CARDS CREATED WITH FULL VALUES")
+        _logger.info("✅ confirm_coupon_programs COMPLETED - ALL GIFT CARDS WITH CUSTOMERS")
         _logger.info("="*80)
         
         return result

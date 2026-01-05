@@ -18,6 +18,14 @@ class ProductTemplate(models.Model):
         string="Is DP?",
         help="Check this if this is a Down Payment product"
     )
+    gm_is_pelunasan = fields.Boolean(
+        string="Is DP Pelunasan?",
+        help="Check this if this is a Down Payment product"
+    )
+    gm_is_dp_payment = fields.Boolean(
+        string="Is DP Payment?",
+        help="Check this if this is a Down Payment Payment product"
+    )
     brand = fields.Char(string="Brand", tracking=True)
 
     def _check_barcode_uniqueness(self):
@@ -45,6 +53,7 @@ class ProductTemplate(models.Model):
                 'list_price': record.list_price,
                 'product_tag_ids': record.product_tag_ids.mapped('name'),
                 'gm_is_dp': record.gm_is_dp,
+                'gm_is_dp_payment': record.gm_is_dp_payment,
             }
         
         # Panggil super write
@@ -55,6 +64,12 @@ class ProductTemplate(models.Model):
             for record in self:
                 # Update all variants of this template
                 record.product_variant_ids.write({'gm_is_dp': vals['gm_is_dp']})
+        
+        # Sync gm_is_dp_payment ke product.product variants
+        if 'gm_is_dp_payment' in vals:
+            for record in self:
+                # Update all variants of this template
+                record.product_variant_ids.write({'gm_is_dp_payment': vals['gm_is_dp_payment']})
         
         # Log ke chatter untuk list_price dan product_tag_ids
         for record in self:
@@ -95,6 +110,12 @@ class ProductTemplate(models.Model):
                 new_dp = vals['gm_is_dp']
                 message_body += f"\nIs DP? changed: {old_dp} → {new_dp}"
             
+            # Log untuk gm_is_dp_payment
+            if 'gm_is_dp_payment' in vals:
+                old_dp_payment = old_values[record.id]['gm_is_dp_payment']
+                new_dp_payment = vals['gm_is_dp_payment']
+                message_body += f"\nIs DP Payment? changed: {old_dp_payment} → {new_dp_payment}"
+            
             # Post message ke chatter jika ada perubahan
             if message_body:
                 record.message_post(body=message_body)
@@ -109,6 +130,10 @@ class ProductTemplate(models.Model):
         # Sync gm_is_dp ke product.product variants saat create
         if 'gm_is_dp' in vals:
             record.product_variant_ids.write({'gm_is_dp': vals['gm_is_dp']})
+        
+        # Sync gm_is_dp_payment ke product.product variants saat create
+        if 'gm_is_dp_payment' in vals:
+            record.product_variant_ids.write({'gm_is_dp_payment': vals['gm_is_dp_payment']})
         
         message_body = "Product created with following information:\n"
         
@@ -135,6 +160,10 @@ class ProductTemplate(models.Model):
         if 'gm_is_dp' in vals:
             message_body += f"- Is DP?: {vals['gm_is_dp']}\n"
         
+        # Log gm_is_dp_payment jika ada
+        if 'gm_is_dp_payment' in vals:
+            message_body += f"- Is DP Payment?: {vals['gm_is_dp_payment']}\n"
+        
         record.message_post(body=message_body)
         
         return record
@@ -147,6 +176,11 @@ class ProductProductInherit(models.Model):
     gm_is_dp = fields.Boolean(
         string="Is DP?",
         help="This is a Down Payment product",
+        # Tidak perlu related karena kita sync manual untuk lebih reliable
+    )
+    gm_is_dp_payment = fields.Boolean(
+        string="Is DP Payment?",
+        help="This is a Down Payment Payment product",
         # Tidak perlu related karena kita sync manual untuk lebih reliable
     )
 

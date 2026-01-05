@@ -854,14 +854,14 @@ class InternalTransferPATCH(http.Controller):
 class TsOutPATCH(http.Controller):
     @http.route(['/api/transfer_stock_out/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_transit_out_order(self, return_id, **kwargs):
-        return update_stock_picking(return_id, 'TS Out', 'Transfer Stock Out')
+        return update_stock_picking(return_id, 'ts_out', 'Transfer Stock Out')
 
 class TsInPATCH(http.Controller):
     @http.route(['/api/transfer_stock_in/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_transit_in_order(self, return_id, **kwargs):
-        return update_stock_picking(return_id, 'TS In', 'Transfer Stock In')
+        return update_stock_picking(return_id, 'ts_in', 'Transfer Stock In')
 
-def update_stock_picking(return_id, picking_type_name, operation_name):
+def update_stock_picking(return_id, gm_type_transfer, operation_name):
     try:
         # Get configuration
         config = request.env['setting.config'].sudo().search([('vit_config_server', '=', 'mc')], limit=1)
@@ -898,9 +898,11 @@ def update_stock_picking(return_id, picking_type_name, operation_name):
                 'id': return_id
             }
 
+        # Updated search to use gm_type_transfer and Internal Transfers
         stock_picking = env['stock.picking'].sudo().search([
             ('id', '=', return_id),
-            ('picking_type_id.name', '=', picking_type_name)
+            ('picking_type_id.code', '=', 'internal'),
+            ('gm_type_transfer', '=', gm_type_transfer)
         ], limit=1)
 
         if not stock_picking.exists():
@@ -1127,13 +1129,24 @@ class PurchaseOrderPATCH(http.Controller):
             env = request.env(user=request.env.ref('base.user_admin').id)
 
             data = request.get_json_data()
-            is_integrated = data.get('is_integrated')
-
-            if not isinstance(is_integrated, bool):
+            
+            # Validasi close_po wajib ada
+            if 'close_po' not in data:
                 return {
                     'code': 400,
                     'status': 'error',
-                    'message': 'Invalid data: is_integrated must be a boolean',
+                    'message': 'Missing required field: close_po',
+                    'id': return_id
+                }
+            
+            close_po = data.get('close_po')
+
+            # Validasi close_po harus boolean
+            if not isinstance(close_po, bool):
+                return {
+                    'code': 400,
+                    'status': 'error',
+                    'message': 'Invalid data: close_po must be a boolean',
                     'id': return_id
                 }
 
@@ -1147,16 +1160,24 @@ class PurchaseOrderPATCH(http.Controller):
                     'id': return_id
                 }
 
+            # Jika close_po = true, jalankan button_done
+            if close_po:
+                purchase_order.button_done()
+                message = 'Purchase Order closed successfully'
+            else:
+                message = 'Purchase Order updated successfully'
+
+            # Update write_uid
             purchase_order.write({
-                'is_integrated': is_integrated,
                 'write_uid': uid
             })
 
             return {
                 'code': 200,
                 'status': 'success',
-                'message': 'Purchase Order updated successfully',
-                'id': return_id
+                'message': message,
+                'id': return_id,
+                'close_po': close_po
             }
 
         except Exception as e:

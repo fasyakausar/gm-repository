@@ -123,6 +123,12 @@ patch(PartnerDetailsEdit.prototype, {
             }
         }
 
+        // ✅ Set company_id dari pos.config
+        if (this.pos.company && this.pos.company.id) {
+            processedChanges.company_id = this.pos.company.id;
+            console.log("Setting company_id to:", processedChanges.company_id);
+        }
+
         // Validasi jika state tidak sesuai dengan country
         if (
             processedChanges.state_id &&

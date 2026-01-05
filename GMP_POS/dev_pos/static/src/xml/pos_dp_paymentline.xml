@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="point_of_sale.PaymentScreenPaymentLines" t-inherit="point_of_sale.PaymentScreenPaymentLines" t-inherit-mode="extension">
+        <!-- Add visual indication for DP payment (readonly) -->
+        <xpath expr="//div[hasclass('paymentline')]" position="attributes">
+            <attribute name="t-att-class">{
+                'paymentline': true,
+                'selected': line.selected,
+                'd-flex': true,
+                'align-items-center': true,
+                'bg-200': line.selected,
+                'bg-view': !line.selected,
+                'payment-readonly': line.payment_method.gm_is_dp,
+                'opacity-75': line.payment_method.gm_is_dp
+            }</attribute>
+        </xpath>
+        
+        <!-- Disable click for DP payment -->
+        <xpath expr="//div[hasclass('payment-infos')]" position="attributes">
+            <attribute name="t-att-style">line.payment_method.gm_is_dp ? 'cursor: not-allowed;' : 'cursor: pointer;'</attribute>
+        </xpath>
+    </t>
+
+</templates>
