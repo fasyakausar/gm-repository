@@ -2564,6 +2564,7 @@ class InvoiceOrder(http.Controller):
                     'customer_id': order.partner_id.id,
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code or "",
+                    'location': order.vit_pos_store,
                     'is_integrated': order.is_integrated,
                     'create_date': str(create_date_jakarta),
                     'invoice_date': str(order.invoice_date),

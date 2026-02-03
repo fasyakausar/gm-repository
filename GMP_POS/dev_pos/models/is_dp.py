@@ -14,12 +14,10 @@ class AccountMove(models.Model):
     )
 
 
-class PosOrder(models.Model):
-    _inherit = 'pos.order'
-    
-    def _prepare_invoice_vals(self):
+def _prepare_invoice_vals(self):
         """
         Override method untuk menambahkan pengecekan produk DP
+        dan membawa vit_pos_store ke invoice
         """
         self.ensure_one()
         timezone = pytz.timezone(self._context.get('tz') or self.env.user.tz or 'UTC')
@@ -52,6 +50,7 @@ class PosOrder(models.Model):
             if self.config_id.cash_rounding and (not self.config_id.only_round_cash_method or any(p.payment_method_id.is_cash_count for p in self.payment_ids))
             else False,
             'gm_is_dp': has_dp_product,  # Set flag gm_is_dp pada invoice
+            'vit_pos_store': self.vit_pos_store if hasattr(self, 'vit_pos_store') else False,  # Bawa vit_pos_store ke invoice
         }
         
         if self.refunded_order_ids.account_move:
