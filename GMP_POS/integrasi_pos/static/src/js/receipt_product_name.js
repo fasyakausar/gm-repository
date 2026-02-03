@@ -10,14 +10,23 @@ patch(ProductScreen.prototype, {
     
     /**
      * Helper method untuk format currency tanpa desimal jika nilainya bulat
+     * FIX: Tambahkan null check dan handle edge cases
      */
     _formatCurrencyWithoutDecimals(amount) {
+        // Handle null, undefined, atau bukan number
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return this.env.utils.formatCurrency(0);
+        }
+        
+        // Convert ke number jika string
+        const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+        
         // Jika amount adalah bilangan bulat, tampilkan tanpa desimal
-        if (amount % 1 === 0) {
-            return this.env.utils.formatCurrency(amount).replace(/[.,]00$/, '');
+        if (numAmount % 1 === 0) {
+            return this.env.utils.formatCurrency(numAmount).replace(/[.,]00$/, '');
         }
         // Jika ada desimal, tampilkan normal
-        return this.env.utils.formatCurrency(amount);
+        return this.env.utils.formatCurrency(numAmount);
     },
 
     /**
@@ -109,18 +118,28 @@ patch(Orderline.prototype, {
 
     /**
      * Helper method untuk format currency tanpa desimal jika nilainya bulat
+     * FIX: Tambahkan null check dan handle edge cases
      */
     _formatCurrencyWithoutDecimals(amount) {
+        // Handle null, undefined, atau bukan number
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return this.env.utils.formatCurrency(0);
+        }
+        
+        // Convert ke number jika string
+        const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+        
         // Jika amount adalah bilangan bulat, tampilkan tanpa desimal
-        if (amount % 1 === 0) {
-            return this.env.utils.formatCurrency(amount).replace(/[.,]00$/, '');
+        if (numAmount % 1 === 0) {
+            return this.env.utils.formatCurrency(numAmount).replace(/[.,]00$/, '');
         }
         // Jika ada desimal, tampilkan normal
-        return this.env.utils.formatCurrency(amount);
+        return this.env.utils.formatCurrency(numAmount);
     },
 
     /**
      * Override getDisplayData untuk memastikan productName dan format harga sesuai keinginan
+     * FIX: Tambahkan error handling dan ensure harga selalu dari method terbaru
      */
     getDisplayData() {
         const displayData = super.getDisplayData();
@@ -128,24 +147,38 @@ patch(Orderline.prototype, {
         // Update productName dengan format barcode + nama
         displayData.productName = this.get_full_product_name();
         
-        // Update format harga unit tanpa desimal jika bilangan bulat
-        displayData.unitPrice = this._formatCurrencyWithoutDecimals(this.get_unit_display_price());
-        
-        // Update format harga total tanpa desimal jika bilangan bulat
-        displayData.price = this.get_discount_str() === "100"
-            ? _t("Free")
-            : (this.comboLines && this.comboLines.length > 0)
-            ? ""
-            : this._formatCurrencyWithoutDecimals(this.get_display_price());
-        
-        // Update old unit price jika ada
-        if (displayData.oldUnitPrice) {
-            displayData.oldUnitPrice = this._formatCurrencyWithoutDecimals(this.get_old_unit_display_price());
-        }
-        
-        // Update price without discount
-        if (displayData.price_without_discount) {
-            displayData.price_without_discount = this._formatCurrencyWithoutDecimals(this.getUnitDisplayPriceBeforeDiscount());
+        // FIX: Pastikan ambil harga dari method yang selalu update
+        try {
+            // Ambil unit price terbaru - ini akan selalu update setelah pricelist berubah
+            const unitPrice = this.get_unit_display_price();
+            displayData.unitPrice = this._formatCurrencyWithoutDecimals(unitPrice);
+            
+            // Ambil total price terbaru
+            const totalPrice = this.get_display_price();
+            
+            // Update format harga total tanpa desimal jika bilangan bulat
+            displayData.price = this.get_discount_str() === "100"
+                ? _t("Free")
+                : (this.comboLines && this.comboLines.length > 0)
+                ? ""
+                : this._formatCurrencyWithoutDecimals(totalPrice);
+            
+            // Update old unit price jika ada
+            if (displayData.oldUnitPrice) {
+                const oldPrice = this.get_old_unit_display_price();
+                displayData.oldUnitPrice = this._formatCurrencyWithoutDecimals(oldPrice);
+            }
+            
+            // Update price without discount
+            if (displayData.price_without_discount) {
+                const priceNoDiscount = this.getUnitDisplayPriceBeforeDiscount();
+                displayData.price_without_discount = this._formatCurrencyWithoutDecimals(priceNoDiscount);
+            }
+        } catch (error) {
+            console.error('Error formatting orderline display data:', error);
+            // Fallback ke format default jika error
+            displayData.unitPrice = this.env.utils.formatCurrency(0);
+            displayData.price = this.env.utils.formatCurrency(0);
         }
         
         return displayData;
@@ -157,14 +190,23 @@ patch(Order.prototype, {
     
     /**
      * Helper method untuk format currency tanpa desimal jika nilainya bulat
+     * FIX: Tambahkan null check dan handle edge cases
      */
     _formatCurrencyWithoutDecimals(amount) {
+        // Handle null, undefined, atau bukan number
+        if (amount === null || amount === undefined || isNaN(amount)) {
+            return this.env.utils.formatCurrency(0);
+        }
+        
+        // Convert ke number jika string
+        const numAmount = typeof amount === 'string' ? parseFloat(amount) : amount;
+        
         // Jika amount adalah bilangan bulat, tampilkan tanpa desimal
-        if (amount % 1 === 0) {
-            return this.env.utils.formatCurrency(amount).replace(/[.,]00$/, '');
+        if (numAmount % 1 === 0) {
+            return this.env.utils.formatCurrency(numAmount).replace(/[.,]00$/, '');
         }
         // Jika ada desimal, tampilkan normal
-        return this.env.utils.formatCurrency(amount);
+        return this.env.utils.formatCurrency(numAmount);
     },
 
     /**
