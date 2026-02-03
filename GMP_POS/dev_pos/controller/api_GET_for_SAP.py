@@ -2485,6 +2485,17 @@ class ManufacturingOrderAPI(http.Controller):
         except Exception as e:
             return serialize_error_response(str(e))
         
+# -*- coding: utf-8 -*-
+import json
+import pytz
+import logging
+import werkzeug
+from odoo import http, fields
+from odoo.http import request
+
+_logger = logging.getLogger(__name__)
+
+
 class InvoiceOrder(http.Controller):
 
     @http.route(['/api/invoice_order/'], type='http', auth='public', methods=['GET'], csrf=False)
@@ -2510,7 +2521,8 @@ class InvoiceOrder(http.Controller):
                 ('state', '=', 'posted'),
                 ('payment_state', '=', 'paid'),
                 ('move_type', '=', 'out_invoice'),
-                ('partner_id.customer_code', '!=', False)
+                ('partner_id.customer_code', '!=', False),
+                ('gm_is_dp', '=', False),  # TAMBAHAN: Filter invoice dengan gm_is_dp = False
             ]
 
             pageSize = int(pageSize) if pageSize else 200
@@ -2540,24 +2552,6 @@ class InvoiceOrder(http.Controller):
             jakarta_tz = pytz.timezone('Asia/Jakarta')
 
             for order in invoice_accounting:
-
-                pos_order = order.pos_order_ids[:1]
-
-                # SKIP JIKA GIFT CARD
-                if pos_order and hasattr(pos_order, 'gift_card_code') and pos_order.gift_card_code:
-                    continue
-
-                # ================================
-                # SKIP JIKA ADA ITEM PELUNASAN
-                # ================================
-                if any(
-                    line.product_id
-                    and hasattr(line.product_id, 'gm_is_pelunasan')
-                    and line.product_id.gm_is_pelunasan
-                    for line in order.invoice_line_ids
-                ):
-                    continue
-
                 create_date_jakarta = pytz.utc.localize(
                     order.create_date
                 ).astimezone(jakarta_tz)
@@ -2591,6 +2585,7 @@ class InvoiceOrder(http.Controller):
             )
 
         except Exception as e:
+            _logger.error(f"Error in get_invoices_order: {str(e)}", exc_info=True)
             return serialize_error_response(str(e))
 
 
@@ -2604,7 +2599,8 @@ class InvoiceOrder(http.Controller):
                 ('state', '=', 'posted'),
                 ('payment_state', '=', 'paid'),
                 ('move_type', '=', 'out_invoice'),
-                ('partner_id.customer_code', '!=', False)
+                ('partner_id.customer_code', '!=', False),
+                ('gm_is_dp', '=', False),  # TAMBAHAN: Pastikan invoice bukan DP
             ], limit=1)
 
             if not invoicing:
@@ -2639,8 +2635,11 @@ class InvoiceOrder(http.Controller):
                         _logger.info(f"Skipping line {line.id} - no product_id")
                         continue
 
-                    if line.product_id.default_code == 'DPPOS':
-                        _logger.info(f"Skipping line {line.id} - product code is ITEMDP")
+                    # ================================
+                    # SKIP JIKA PRODUCT ADALAH PELUNASAN (gm_is_pelunasan = True)
+                    # ================================
+                    if hasattr(line.product_id, 'gm_is_pelunasan') and line.product_id.gm_is_pelunasan:
+                        _logger.info(f"Skipping line {line.id} - product has gm_is_pelunasan = True")
                         continue
                     
                     # Skip hanya jika quantity 0
