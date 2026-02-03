@@ -1,0 +1,32 @@
+name: Deploy to Ubuntu Server
+
+on:
+  push:
+    branches:
+      - main  # atau branch lain yang Anda inginkan
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Setup SSH
+      uses: webfactory/ssh-agent@v0.5.3
+      with:
+        ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+    - name: Copy files via SSH
+      run: |
+        rsync -avz -e "ssh -o StrictHostKeyChecking=no -p 22" --exclude '.git*' ./ root@217.216.75.141:/usr/lib/python3/dist-packages/odoo/custom_addons
+
+    - name: Restart Odoo Service
+      run: |
+        echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 22 root@217.216.75.141 'sudo -S systemctl restart odoo.service'
+
+    # - name: Run Python Script
+    #   run: |
+    #     echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 21787 root@116.254.101.213 'sudo -S python3 /vit/odoo/odoo17/encrypt_addon.py'
+    #     echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 23567 root@116.254.101.213 'sudo -S python3 /vit/odoo/odoo17/encrypt_addon.py'

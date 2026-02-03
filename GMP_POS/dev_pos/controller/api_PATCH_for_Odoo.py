@@ -901,7 +901,6 @@ def update_stock_picking(return_id, gm_type_transfer, operation_name):
         # Updated search to use gm_type_transfer and Internal Transfers
         stock_picking = env['stock.picking'].sudo().search([
             ('id', '=', return_id),
-            ('picking_type_id.code', '=', 'internal'),
             ('gm_type_transfer', '=', gm_type_transfer)
         ], limit=1)
 

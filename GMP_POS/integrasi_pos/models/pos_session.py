@@ -15,7 +15,7 @@ class ReportSaleDetailsInherit(models.AbstractModel):
         2. Menambahkan total modal ke expected cash amount
         """
         # Panggil bawaan dulu
-        result = super().get_sale_details(date_start, date_stop, config_ids, session_ids)
+        result = super().get_sale_details(date_start, date_stop, config_ids, session_ids)  # ✅ FIXED
         
         sessions = self.env["pos.session"].browse(session_ids) if session_ids else []
         
@@ -126,7 +126,7 @@ class PosSession(models.Model):
         Override untuk menambahkan total_modal ke response
         dan update opening balance
         """
-        result = super(PosSession, self).get_closing_control_data()
+        result = super().get_closing_control_data()  # ✅ FIXED
         
         # Calculate total modal from all end.shift in this session
         total_modal = sum(
@@ -245,7 +245,7 @@ class PosSession(models.Model):
                     f"balance_start auto-set to {total_modal}"
                 )
         
-        return super(PosSession, self).action_pos_session_closing_control(
+        return super().action_pos_session_closing_control(  # ✅ FIXED
             balancing_account, amount_to_balance, bank_payment_method_diffs
         )
 

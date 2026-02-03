@@ -4240,6 +4240,7 @@ class TsOutAPI(http.Controller):
                     'location': order.location_id.complete_name,
                     'location_dest_id': order.location_dest_id.id,
                     'location_dest': order.location_dest_id.complete_name,
+                    'is_integrated': order.is_integrated,
                     'picking_type_id': order.picking_type_id.id,
                     'picking_type': order.picking_type_id.name,
                     'gm_type_transfer': order.gm_type_transfer,  # Added field
@@ -4418,6 +4419,7 @@ class TsInAPI(http.Controller):
                     'location_name': order.location_id.complete_name,
                     'location_dest_id': order.location_dest_id.id,
                     'location_dest': order.location_dest_id.complete_name,
+                    'is_integrated': order.is_integrated,
                     'picking_type_id': order.picking_type_id.id,
                     'picking_type': order.picking_type_id.name,
                     'gm_type_transfer': order.gm_type_transfer,  # Added field
