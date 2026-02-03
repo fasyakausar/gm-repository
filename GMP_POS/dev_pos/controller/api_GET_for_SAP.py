@@ -2522,7 +2522,7 @@ class InvoiceOrder(http.Controller):
                 ('payment_state', '=', 'paid'),
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
-                ('gm_is_dp', '=', False),  # Filter invoice dengan gm_is_dp = False
+                ('gm_is_dp', '=', False),  # TAMBAHAN: Filter invoice dengan gm_is_dp = False
             ]
 
             pageSize = int(pageSize) if pageSize else 200
@@ -2552,11 +2552,6 @@ class InvoiceOrder(http.Controller):
             jakarta_tz = pytz.timezone('Asia/Jakarta')
 
             for order in invoice_accounting:
-                # Double check: Skip jika vit_pos_store kosong (sebagai safety net)
-                if not order.vit_pos_store:
-                    _logger.info(f"Skipping invoice {order.name} - vit_pos_store is empty")
-                    continue
-
                 create_date_jakarta = pytz.utc.localize(
                     order.create_date
                 ).astimezone(jakarta_tz)
