@@ -648,30 +648,72 @@ class PosSession(models.Model):
         return self._get_pos_ui_res_config_settings(params)
     
     def _loader_params_product_product(self):
-        """Override untuk menambahkan gm_is_pelunasan dengan logging"""
+        """
+        Override untuk menambahkan gm_is_pelunasan dengan logging detail
+        """
         result = super()._loader_params_product_product()
         
         # Tambahkan gm_is_pelunasan ke fields
         if 'gm_is_pelunasan' not in result['search_params']['fields']:
             result['search_params']['fields'].append('gm_is_pelunasan')
+            _logger.info("✅ Added gm_is_pelunasan to product.product loader")
         
-        _logger.info("✅ Added gm_is_pelunasan to product.product loader")
-        _logger.info(f"📦 Product fields: {result['search_params']['fields']}")
+        _logger.info(f"📦 Product loader fields: {result['search_params']['fields']}")
         
         return result
 
     def _get_pos_ui_product_product(self, params):
-        """Override untuk logging product data"""
+        """
+        Override untuk logging detail produk pelunasan yang di-load
+        """
         products = super()._get_pos_ui_product_product(params)
         
-        # Log products with gm_is_pelunasan
-        pelunasan_products = [p for p in products if p.get('gm_is_pelunasan')]
+        # Count dan log produk dengan gm_is_pelunasan
+        pelunasan_products = []
+        normal_products = []
+        
+        for product in products:
+            if product.get('gm_is_pelunasan') is True:
+                pelunasan_products.append(product)
+            else:
+                normal_products.append(product)
+        
+        # Detailed logging
+        _logger.info(f"📊 Product loading summary:")
+        _logger.info(f"   Total products: {len(products)}")
+        _logger.info(f"   Pelunasan products: {len(pelunasan_products)}")
+        _logger.info(f"   Normal products: {len(normal_products)}")
+        
         if pelunasan_products:
-            _logger.info(f"🎯 Found {len(pelunasan_products)} pelunasan products:")
-            for p in pelunasan_products:
-                _logger.info(f"  - {p.get('display_name')} (ID: {p.get('id')}, gm_is_pelunasan: {p.get('gm_is_pelunasan')})")
+            _logger.info(f"🎯 Pelunasan products loaded:")
+            for p in pelunasan_products[:10]:  # Log max 10 untuk avoid spam
+                _logger.info(
+                    f"   - {p.get('display_name')} "
+                    f"(ID: {p.get('id')}, "
+                    f"gm_is_pelunasan: {p.get('gm_is_pelunasan')})"
+                )
+            if len(pelunasan_products) > 10:
+                _logger.info(f"   ... and {len(pelunasan_products) - 10} more")
         else:
-            _logger.warning("⚠️ No pelunasan products found in loaded data")
+            _logger.warning("⚠️ No pelunasan products found in loaded data!")
+            _logger.warning("   This might indicate:")
+            _logger.warning("   1. No products have gm_is_pelunasan = True")
+            _logger.warning("   2. Field 'gm_is_pelunasan' not in product.product model")
+            _logger.warning("   3. Field not properly configured")
+        
+        # Validasi field availability
+        sample_product = products[0] if products else None
+        if sample_product:
+            has_field = 'gm_is_pelunasan' in sample_product
+            _logger.info(
+                f"✅ Field 'gm_is_pelunasan' {'FOUND' if has_field else 'NOT FOUND'} "
+                f"in product data"
+            )
+            if not has_field:
+                _logger.error(
+                    "❌ CRITICAL: Field 'gm_is_pelunasan' missing from product data! "
+                    "Receipt filtering will NOT work!"
+                )
         
         return products
     

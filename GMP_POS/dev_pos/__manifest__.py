@@ -85,6 +85,7 @@
             'dev_pos/static/src/js/pos_dp_paymentline.js',
             'dev_pos/static/src/js/pos_dp_validate.js',
             'dev_pos/static/src/js/pos_sale_order.js',
+            'dev_pos/static/src/js/struk_pelunasan.js',
         ],
     },
     'license': 'LGPL-3',
