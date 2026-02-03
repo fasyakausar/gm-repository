@@ -8,12 +8,9 @@
       <field name="inherit_id" ref="point_of_sale.pos_payment_method_view_form"/>
       <field name="arch" type="xml">
         <xpath expr="//field[@name='journal_id']" position="after">
-            <field name="is_integrated"/>
-            <field name="is_updated"/>
-            <field name="is_store"/>
-            <field name="vit_trxid"/>
             <field name="gm_is_dp"/>
             <field name="gm_is_refund"/>
+            <field name="gm_is_card"/>
         </xpath>
       </field>
     </record>

@@ -9,41 +9,83 @@ patch(Order.prototype, {
         // Pastikan flag terdefinisi
         this.is_refund_order = this.is_refund_order || false;
 
-        // 🔍 Debug logging
-        console.log("🔍 Order setup debug:", {
-            is_refund: this.is_refund_order,
-            has_partner: !!this.partner,
-            default_partner_config: this.pos.config.default_partner_id,
-            partners_count: this.pos.partners ? this.pos.partners.length : 0,
-            db_partners_count: this.pos.db ? Object.keys(this.pos.db.partner_by_id || {}).length : 0
-        });
+        // ✅ Set default partner dengan multiple fallback
+        this._setDefaultCustomerIfNeeded();
+    },
 
-        // ✅ Set default partner HANYA jika:
-        // 1. Bukan refund order
-        // 2. Belum ada partner yang di-set
-        // 3. Ada default partner di config
-        if (!this.is_refund_order && !this.partner && this.pos.config.default_partner_id) {
-            const default_customer_id = this.pos.config.default_partner_id[0];
-            console.log("🔍 Looking for default customer ID:", default_customer_id);
-            
-            // Coba ambil dari db
-            let partner = this.pos.db.get_partner_by_id(default_customer_id);
-            
-            // Jika tidak ada di db, coba dari array partners
-            if (!partner && this.pos.partners) {
-                partner = this.pos.partners.find(p => p.id === default_customer_id);
-                console.log("🔍 Found in partners array:", !!partner);
+    /**
+     * ✅ NEW METHOD: Set default customer dengan multiple fallback mechanisms
+     */
+    _setDefaultCustomerIfNeeded() {
+        // Skip jika:
+        // 1. Sudah ada partner
+        // 2. Adalah refund order
+        // 3. Tidak ada config default partner
+        if (this.partner || this.is_refund_order || !this.pos.config.default_partner_id) {
+            return;
+        }
+
+        const defaultCustomerId = Array.isArray(this.pos.config.default_partner_id) 
+            ? this.pos.config.default_partner_id[0] 
+            : this.pos.config.default_partner_id;
+
+        console.group("🔍 LOADING DEFAULT CUSTOMER");
+        console.log("Default customer ID:", defaultCustomerId);
+
+        // ✅ FALLBACK 1: Try db.get_partner_by_id
+        let partner = null;
+        try {
+            if (this.pos.db && this.pos.db.get_partner_by_id) {
+                partner = this.pos.db.get_partner_by_id(defaultCustomerId);
+                if (partner) {
+                    console.log("✅ Found in db.get_partner_by_id:", partner.name);
+                }
             }
-            
+        } catch (e) {
+            console.warn("⚠️ db.get_partner_by_id failed:", e.message);
+        }
+
+        // ✅ FALLBACK 2: Try pos.partners array
+        if (!partner && this.pos.partners) {
+            partner = this.pos.partners.find(p => p.id === defaultCustomerId);
             if (partner) {
-                this.set_partner(partner);
-                console.log("✅ Default customer loaded:", partner.name);
-            } else {
-                console.error("❌ Default customer not found:", {
-                    id: default_customer_id,
-                    available_partners: this.pos.partners ? this.pos.partners.map(p => ({id: p.id, name: p.name})) : []
-                });
+                console.log("✅ Found in pos.partners array:", partner.name);
             }
+        }
+
+        // ✅ FALLBACK 3: Try db.partner_by_id direct access
+        if (!partner && this.pos.db && this.pos.db.partner_by_id) {
+            partner = this.pos.db.partner_by_id[defaultCustomerId];
+            if (partner) {
+                console.log("✅ Found in db.partner_by_id:", partner.name);
+            }
+        }
+
+        // ✅ FALLBACK 4: Search in all db partners
+        if (!partner && this.pos.db && this.pos.db.partner_by_id) {
+            const allPartners = Object.values(this.pos.db.partner_by_id);
+            partner = allPartners.find(p => p.id === defaultCustomerId);
+            if (partner) {
+                console.log("✅ Found in db.partner_by_id (searched):", partner.name);
+            }
+        }
+
+        // Set partner jika ditemukan
+        if (partner) {
+            this.set_partner(partner);
+            console.log("✅ Default customer set successfully:", partner.name);
+            console.groupEnd();
+        } else {
+            console.error("❌ DEFAULT CUSTOMER NOT FOUND!");
+            console.error("Available debug info:", {
+                defaultCustomerId: defaultCustomerId,
+                hasDb: !!this.pos.db,
+                dbPartnerCount: this.pos.db ? Object.keys(this.pos.db.partner_by_id || {}).length : 0,
+                partnersArrayCount: this.pos.partners ? this.pos.partners.length : 0,
+                configDefaultPartner: this.pos.config.default_partner_id,
+                samplePartners: this.pos.partners ? this.pos.partners.slice(0, 3).map(p => ({id: p.id, name: p.name})) : []
+            });
+            console.groupEnd();
         }
     },
 

@@ -2522,7 +2522,7 @@ class InvoiceOrder(http.Controller):
                 ('payment_state', '=', 'paid'),
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
-                ('gm_is_dp', '=', False),  # TAMBAHAN: Filter invoice dengan gm_is_dp = False
+                ('gm_is_dp', '=', False),
             ]
 
             pageSize = int(pageSize) if pageSize else 200
@@ -2556,6 +2556,25 @@ class InvoiceOrder(http.Controller):
                     order.create_date
                 ).astimezone(jakarta_tz)
 
+                # ✅ Cari location berdasarkan vit_pos_store dari pos.order
+                location_id = None
+                location_name = ""
+                
+                if order.pos_order_ids:
+                    pos_order = order.pos_order_ids[0]
+                    if hasattr(pos_order, 'vit_pos_store') and pos_order.vit_pos_store:
+                        # vit_pos_store adalah string nama location
+                        # Cari di stock.location berdasarkan name atau complete_name
+                        location = request.env['stock.location'].sudo().search([
+                            '|',
+                            ('name', '=', pos_order.vit_pos_store),
+                            ('complete_name', 'ilike', pos_order.vit_pos_store)
+                        ], limit=1)
+                        
+                        if location:
+                            location_id = location.id
+                            location_name = location.complete_name
+
                 data_invoice_accounting.append({
                     'id': order.id,
                     'pos_order_id': order.pos_order_ids[0].id if order.pos_order_ids else None,
@@ -2564,7 +2583,8 @@ class InvoiceOrder(http.Controller):
                     'customer_id': order.partner_id.id,
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code or "",
-                    'location': order.vit_pos_store,
+                    'location_id': location_id,  # ✅ ID dari stock.location
+                    'location': location_name,   # ✅ Nama dari stock.location
                     'is_integrated': order.is_integrated,
                     'create_date': str(create_date_jakarta),
                     'invoice_date': str(order.invoice_date),

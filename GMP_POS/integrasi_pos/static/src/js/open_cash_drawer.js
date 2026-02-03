@@ -986,7 +986,11 @@ patch(PaymentScreen.prototype, {
             
             this.numberBuffer.reset();
             
-            if (paymentMethod.type !== "cash") {
+            // ✅ PERUBAHAN: Cek gm_is_card field dari payment method
+            // Hanya tampilkan popup jika gm_is_card = True
+            if (paymentMethod.gm_is_card === true) {
+                console.log(`💳 Card payment detected: ${paymentMethod.name} (gm_is_card=true)`);
+                
                 const { confirmed, payload } = await this.popup.add(NumericKeyboardPopup, {
                     title: "Input 4 Digit Terakhir Kartu",
                     maxLength: 4,
@@ -997,13 +1001,18 @@ patch(PaymentScreen.prototype, {
                 if (confirmed && payload) {
                     if (paymentLine) {
                         paymentLine.card_number = payload;
+                        console.log(`✅ Card number saved: ****${payload}`);
                     }
                 } else if (!confirmed) {
+                    console.log("❌ User cancelled card number input");
                     if (paymentLine) {
                         this.currentOrder.remove_paymentline(paymentLine);
                     }
                     return false;
                 }
+            } else {
+                console.log(`💵 Non-card payment: ${paymentMethod.name} (gm_is_card=${paymentMethod.gm_is_card || false})`);
+                // Tidak perlu input card number untuk non-card payment
             }
             
             return true;

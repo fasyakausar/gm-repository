@@ -203,6 +203,93 @@ patch(PosStore.prototype, {
                 console.warn("⚠️ No cashier logs loaded");
             }
 
+            // ✅ Validate Payment Methods have gm_is_card field
+            if (this.payment_methods && this.payment_methods.length > 0) {
+                console.group("💳 VALIDATING PAYMENT METHODS");
+                
+                let cardMethodsCount = 0;
+                let missingFieldCount = 0;
+                
+                for (const pm of this.payment_methods) {
+                    if (pm.gm_is_card === true) {
+                        cardMethodsCount++;
+                        console.log(`  ✅ Card method: ${pm.name} (ID: ${pm.id})`);
+                    } else if (pm.gm_is_card === false || pm.gm_is_card === undefined) {
+                        console.log(`  💵 Non-card method: ${pm.name} (ID: ${pm.id})`);
+                    } else {
+                        missingFieldCount++;
+                        console.warn(`  ⚠️ Missing gm_is_card field: ${pm.name} (ID: ${pm.id})`);
+                    }
+                }
+                
+                console.log(`📊 Payment Method Summary:`);
+                console.log(`   Total: ${this.payment_methods.length}`);
+                console.log(`   Card methods: ${cardMethodsCount}`);
+                console.log(`   Missing field: ${missingFieldCount}`);
+                
+                if (missingFieldCount > 0) {
+                    console.warn(`⚠️ ${missingFieldCount} payment methods are missing gm_is_card field!`);
+                    console.warn(`   Card number popup may not work correctly for these methods.`);
+                }
+                
+                console.groupEnd();
+            } else {
+                console.warn("⚠️ No payment methods loaded");
+            }
+
+            // ✅ VALIDATE DEFAULT CUSTOMER
+            console.group("👤 VALIDATING DEFAULT CUSTOMER");
+            
+            if (this.config.default_partner_id) {
+                const defaultCustomerId = Array.isArray(this.config.default_partner_id) 
+                    ? this.config.default_partner_id[0] 
+                    : this.config.default_partner_id;
+                
+                const defaultCustomerName = Array.isArray(this.config.default_partner_id) 
+                    ? this.config.default_partner_id[1] 
+                    : 'Unknown';
+
+                console.log(`🔍 Looking for default customer: ${defaultCustomerName} (ID: ${defaultCustomerId})`);
+
+                // Check in db
+                let foundInDb = false;
+                if (this.db && this.db.partner_by_id) {
+                    foundInDb = !!this.db.partner_by_id[defaultCustomerId];
+                }
+
+                // Check in partners array
+                let foundInArray = false;
+                if (this.partners) {
+                    foundInArray = this.partners.some(p => p.id === defaultCustomerId);
+                }
+
+                console.log("Validation results:", {
+                    defaultCustomerId: defaultCustomerId,
+                    defaultCustomerName: defaultCustomerName,
+                    foundInDb: foundInDb,
+                    foundInArray: foundInArray,
+                    dbPartnerCount: this.db ? Object.keys(this.db.partner_by_id || {}).length : 0,
+                    partnersArrayCount: this.partners ? this.partners.length : 0
+                });
+
+                if (foundInDb || foundInArray) {
+                    console.log(`✅ Default customer '${defaultCustomerName}' is loaded and ready`);
+                } else {
+                    console.error(`❌ DEFAULT CUSTOMER '${defaultCustomerName}' NOT FOUND!`);
+                    console.error("This will cause issues when creating new orders!");
+                    console.error("Please check:", {
+                        issue1: "Is the default_partner_id set correctly in pos.config?",
+                        issue2: "Is the partner archived or deleted?",
+                        issue3: "Is the partner filtered out by domain restrictions?",
+                        samplePartners: this.partners ? this.partners.slice(0, 5).map(p => ({id: p.id, name: p.name})) : []
+                    });
+                }
+            } else {
+                console.log("ℹ️ No default customer configured in POS settings");
+            }
+
+            console.groupEnd();
+
             console.log("✅ All custom POS data loaded successfully!");
             console.log("📊 Data Summary:", {
                 config: !!configSettings,
@@ -218,6 +305,7 @@ patch(PosStore.prototype, {
                 partners: this.partners ? this.partners.length : 0,
                 multipleBarcodes: this.multiple_barcodes.length,
                 cashierLogs: this.cashier_logs.length,
+                paymentMethods: this.payment_methods ? this.payment_methods.length : 0,
             });
 
         } catch (error) {
@@ -225,6 +313,69 @@ patch(PosStore.prototype, {
             console.error("❌ Error stack:", error.stack);
             // Don't throw - allow POS to continue loading with partial data
         }
+    },
+
+    /**
+     * ✅ Helper method to get default customer
+     */
+    getDefaultCustomer() {
+        if (!this.config.default_partner_id) {
+            return null;
+        }
+
+        const defaultCustomerId = Array.isArray(this.config.default_partner_id) 
+            ? this.config.default_partner_id[0] 
+            : this.config.default_partner_id;
+
+        // Try multiple sources
+        let customer = null;
+
+        // 1. Try db.get_partner_by_id
+        if (this.db && this.db.get_partner_by_id) {
+            try {
+                customer = this.db.get_partner_by_id(defaultCustomerId);
+            } catch (e) {
+                console.warn("⚠️ db.get_partner_by_id failed:", e.message);
+            }
+        }
+
+        // 2. Try partners array
+        if (!customer && this.partners) {
+            customer = this.partners.find(p => p.id === defaultCustomerId);
+        }
+
+        // 3. Try direct db access
+        if (!customer && this.db && this.db.partner_by_id) {
+            customer = this.db.partner_by_id[defaultCustomerId];
+        }
+
+        // 4. Search in all db partners
+        if (!customer && this.db && this.db.partner_by_id) {
+            const allPartners = Object.values(this.db.partner_by_id);
+            customer = allPartners.find(p => p.id === defaultCustomerId);
+        }
+
+        return customer;
+    },
+
+    /**
+     * ✅ Override add_new_order to ensure default customer is set
+     */
+    add_new_order() {
+        const order = super.add_new_order(...arguments);
+        
+        // ✅ Set default customer jika belum ada dan bukan refund order
+        if (order && !order.partner && !order.is_refund_order) {
+            const defaultCustomer = this.getDefaultCustomer();
+            if (defaultCustomer) {
+                order.set_partner(defaultCustomer);
+                console.log("✅ Default customer auto-set on new order:", defaultCustomer.name);
+            } else if (this.config.default_partner_id) {
+                console.warn("⚠️ Could not set default customer - partner not found");
+            }
+        }
+        
+        return order;
     },
 
     /**

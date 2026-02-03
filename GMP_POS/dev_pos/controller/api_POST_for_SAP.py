@@ -2357,6 +2357,7 @@ class POSTGoodsReceipt(http.Controller):
             # ✅ Validate picking type dengan pengecekan company yang eksplisit
             picking_type = env['stock.picking.type'].sudo().search([
                 ('name', '=', picking_type_name),
+                ('default_location_dest_id', '=', location_dest_id),
                 ('company_id', '=', company_id)
             ], limit=1)
             
@@ -2567,6 +2568,7 @@ class POSTGoodsIssue(http.Controller):
             # ✅ Validate picking type dengan company eksplisit
             picking_type = env['stock.picking.type'].sudo().search([
                 ('name', '=', picking_type_name),
+                ('default_location_src_id', '=', location_id),
                 ('company_id', '=', company_id)
             ], limit=1)
             

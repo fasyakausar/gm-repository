@@ -1,75 +1,107 @@
 /** @odoo-module **/
 
 import { patch } from "@web/core/utils/patch";
-import { Order } from "@point_of_sale/app/models/models";
+import { Order, Orderline } from "@point_of_sale/app/store/models";
 
 /**
- * Patch Order model untuk filter produk pelunasan dari struk
+ * 🎯 PELUNASAN Filter v3.0
+ * Fixed: Works with display data format from getDisplayData()
  */
+
+// =====================================================
+// PATCH 1: Override getDisplayData di Orderline
+// =====================================================
+patch(Orderline.prototype, {
+    /**
+     * Override getDisplayData untuk menambahkan flag isPelunasan
+     * Ini akan digunakan di template untuk filter
+     */
+    getDisplayData() {
+        const data = super.getDisplayData(...arguments);
+        
+        // Tambahkan flag isPelunasan ke display data
+        try {
+            const product = this.get_product();
+            data.isPelunasan = product?.gm_is_pelunasan === true;
+            
+            if (data.isPelunasan) {
+                console.log(
+                    `🏷️ [PELUNASAN] Marked as pelunasan: ${product.display_name} ` +
+                    `(gm_is_pelunasan: ${product.gm_is_pelunasan})`
+                );
+            }
+        } catch (e) {
+            console.error('[PELUNASAN] Error in getDisplayData:', e);
+            data.isPelunasan = false;
+        }
+        
+        return data;
+    },
+});
+
+// =====================================================
+// PATCH 2: Filter di export_for_printing
+// =====================================================
 patch(Order.prototype, {
     /**
-     * Override export_for_printing untuk filter gm_is_pelunasan
+     * Override export_for_printing untuk filter pelunasan
+     * Bekerja dengan data yang sudah di-transform ke display format
      */
     export_for_printing() {
         const result = super.export_for_printing(...arguments);
         
-        // ✅ Filter orderlines: buang yang gm_is_pelunasan = true
-        if (result.orderlines && Array.isArray(result.orderlines)) {
-            const originalLength = result.orderlines.length;
+        console.log('🔍 [PELUNASAN] Starting receipt filter v3...');
+        
+        // Safety check
+        if (!result.orderlines || !Array.isArray(result.orderlines)) {
+            console.warn('⚠️ [PELUNASAN] No orderlines found');
+            return result;
+        }
+        
+        const originalCount = result.orderlines.length;
+        console.log(`📊 [PELUNASAN] Total orderlines: ${originalCount}`);
+        
+        // Filter berdasarkan flag isPelunasan yang sudah di-set di getDisplayData
+        const filteredLines = result.orderlines.filter((line, index) => {
+            // Check flag isPelunasan
+            const isPelunasan = line.isPelunasan === true;
             
-            result.orderlines = result.orderlines.filter(line => {
-                // Get product dari database
-                const product = this.pos.db.get_product_by_id(
-                    line.product_id?.[0] || line.product_id
-                );
-                
-                // Filter out jika gm_is_pelunasan = true
-                const isPelunasan = product?.gm_is_pelunasan === true;
-                
-                if (isPelunasan) {
-                    console.log(
-                        `🚫 Hiding pelunasan product from receipt: ${product.display_name} (ID: ${product.id})`
-                    );
-                }
-                
-                return !isPelunasan;
-            });
-            
-            const filteredCount = originalLength - result.orderlines.length;
-            if (filteredCount > 0) {
+            if (isPelunasan) {
                 console.log(
-                    `✅ Filtered ${filteredCount} pelunasan products from receipt. ` +
-                    `Showing ${result.orderlines.length}/${originalLength} items.`
+                    `🚫 [PELUNASAN] Filtering line ${index + 1}: ${line.productName} ` +
+                    `(isPelunasan: ${isPelunasan})`
                 );
+                return false; // Filter out
+            } else {
+                console.log(
+                    `✅ [PELUNASAN] Keeping line ${index + 1}: ${line.productName} ` +
+                    `(isPelunasan: ${isPelunasan || false})`
+                );
+                return true; // Keep
             }
+        });
+        
+        // Update result
+        result.orderlines = filteredLines;
+        
+        const filteredCount = originalCount - filteredLines.length;
+        console.log('📊 [PELUNASAN] Filter summary:');
+        console.log(`   Original: ${originalCount}`);
+        console.log(`   Filtered: ${filteredCount}`);
+        console.log(`   Final: ${filteredLines.length}`);
+        
+        // Safety: prevent complete wipeout
+        if (filteredLines.length === 0 && originalCount > 0) {
+            console.error('❌ [PELUNASAN] ERROR: All lines filtered!');
+            console.error('   Reverting to original data');
+            
+            // Revert - gunakan original data tanpa filter
+            const originalResult = super.export_for_printing(...arguments);
+            return originalResult;
         }
         
         return result;
     },
-    
-    /**
-     * Helper untuk mengecek apakah order punya produk pelunasan
-     */
-    hasPelunasanProducts() {
-        return this.orderlines.some(line => {
-            const product = this.pos.db.get_product_by_id(
-                line.product_id?.[0] || line.product_id
-            );
-            return product?.gm_is_pelunasan === true;
-        });
-    },
-    
-    /**
-     * Get total tanpa produk pelunasan
-     */
-    get_total_without_pelunasan() {
-        return this.orderlines
-            .filter(line => {
-                const product = this.pos.db.get_product_by_id(
-                    line.product_id?.[0] || line.product_id
-                );
-                return product?.gm_is_pelunasan !== true;
-            })
-            .reduce((sum, line) => sum + line.get_display_price(), 0);
-    },
 });
+
+console.log("✅ [PELUNASAN] Receipt filter v3.0 loaded (works with display data)");

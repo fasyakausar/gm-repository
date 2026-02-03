@@ -13,3 +13,4 @@ class PoSPaymentMethodInherit(models.Model):
     vit_trxid = fields.Char(string="Transaction ID", default=False)
     gm_is_dp = fields.Boolean(string="Is DP?")
     gm_is_refund = fields.Boolean(string="Is Refund?")
+    gm_is_card = fields.Boolean(string="Is Card?")

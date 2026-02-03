@@ -339,6 +339,44 @@ class PosSession(models.Model):
 
     # def _pos_ui_pos_order_line(self, params):
     #     return self._get_pos_ui_pos_order_line(params)
+
+    def _loader_params_pos_payment_method(self):
+        """
+        Override untuk menambahkan gm_is_card field
+        """
+        result = super()._loader_params_pos_payment_method()
+        
+        # Tambahkan gm_is_card ke fields jika belum ada
+        if 'gm_is_card' not in result['search_params']['fields']:
+            result['search_params']['fields'].append('gm_is_card')
+            _logger.info("✅ Added gm_is_card to pos.payment.method loader")
+        
+        return result
+
+    def _get_pos_ui_pos_payment_method(self, params):
+        """
+        Override untuk logging payment method dengan gm_is_card
+        """
+        payment_methods = super()._get_pos_ui_pos_payment_method(params)
+        
+        # Log payment methods dengan gm_is_card
+        card_methods = [pm for pm in payment_methods if pm.get('gm_is_card')]
+        non_card_methods = [pm for pm in payment_methods if not pm.get('gm_is_card')]
+        
+        _logger.info(f"📊 Payment Method Loading Summary:")
+        _logger.info(f"   Total payment methods: {len(payment_methods)}")
+        _logger.info(f"   Card methods (gm_is_card=True): {len(card_methods)}")
+        _logger.info(f"   Non-card methods: {len(non_card_methods)}")
+        
+        if card_methods:
+            _logger.info(f"💳 Card payment methods:")
+            for pm in card_methods:
+                _logger.info(f"   - {pm.get('name')} (ID: {pm.get('id')}, gm_is_card: True)")
+        
+        return payment_methods
+    
+    def _pos_ui_pos_payment_method(self, params):
+        return self._get_pos_ui_pos_payment_method(params)
     
     def _loader_params_res_company(self):
         return {
@@ -720,85 +758,184 @@ class PosSession(models.Model):
     def _pos_ui_product_product(self, params):
         return self._get_pos_ui_product_product(params)
 
-    # def _loader_params_res_partner(self):
-    #     try:
-    #         domain = self._get_partners_domain() if hasattr(self, '_get_partners_domain') else []
-    #     except Exception:
-    #         domain = []
+    import logging
+import traceback
+from odoo import models, fields, api
+
+_logger = logging.getLogger(__name__)
+
+class PosSession(models.Model):
+    _inherit = 'pos.session'
+
+    def _loader_params_res_partner(self):
+        """
+        Override untuk memastikan ALL partners ter-load dengan proper domain
+        dan FORCE INCLUDE default customer
+        """
+        # ✅ SIMPLE DOMAIN: Load semua active partners
+        domain = [('active', '=', True)]
         
-    #     # ✅ TAMBAHKAN: Pastikan default customer selalu ter-load
-    #     if self.config_id.default_partner_id:
-    #         default_partner_id = self.config_id.default_partner_id.id
-    #         if domain:
-    #             domain = ['|', ('id', '=', default_partner_id)] + domain
-    #         else:
-    #             domain = [('id', '=', default_partner_id)]
+        _logger.info(f"🔍 Base partner domain: {domain}")
+        
+        # ✅ FORCE INCLUDE: Pastikan default customer SELALU ter-load
+        if self.config_id.default_partner_id:
+            default_partner_id = self.config_id.default_partner_id.id
+            default_partner_name = self.config_id.default_partner_id.name
+            _logger.info(f"🎯 Force including default customer: '{default_partner_name}' (ID: {default_partner_id})")
             
-    #     return {
-    #         'search_params': {
-    #             'domain': domain,
-    #             'fields': [
-    #                 'name', 'street', 'city', 'state_id', 'country_id',
-    #                 'vat', 'lang', 'phone', 'zip', 'mobile', 'email',
-    #                 'barcode', 'write_date', 'property_account_position_id',
-    #                 'property_product_pricelist', 'parent_name', 'category_id',
-    #                 'is_store', 'vit_customer_group',
-    #             ],
-    #         }
-    #     }
+            # Add OR condition untuk default partner
+            domain = ['|', ('id', '=', default_partner_id)] + domain
+            _logger.info(f"🔍 Modified domain: {domain}")
+        
+        return {
+            'search_params': {
+                'domain': domain,
+                'fields': [
+                    'name', 'street', 'city', 'state_id', 'country_id',
+                    'vat', 'lang', 'phone', 'zip', 'mobile', 'email',
+                    'barcode', 'write_date', 'property_account_position_id',
+                    'property_product_pricelist', 'parent_name', 'category_id',
+                    'vit_customer_group',
+                ],
+                'limit': 10000,  # High limit untuk memastikan semua ter-load
+                'order': 'name ASC',
+            }
+        }
 
-    # def _get_pos_ui_res_partner(self, params):
-    #     try:
-    #         partners = self.env['res.partner'].search_read(
-    #             params['search_params'].get('domain', []),
-    #             params['search_params']['fields'],
-    #             limit=1000,
-    #             order='write_date DESC'
-    #         )
+    def _get_pos_ui_res_partner(self, params):
+        """
+        Override dengan:
+        1. Force-load default customer jika tidak ter-load
+        2. Extensive logging untuk debugging
+        3. Proper error handling
+        """
+        try:
+            # Load partners dari database
+            partners = self.env['res.partner'].search_read(
+                params['search_params'].get('domain', []),
+                params['search_params']['fields'],
+                limit=params['search_params'].get('limit', 10000),
+                order=params['search_params'].get('order', 'name ASC')
+            )
             
-    #         # ✅ VALIDASI: Log jika default customer ter-load
-    #         if self.config_id.default_partner_id:
-    #             default_id = self.config_id.default_partner_id.id
-    #             is_loaded = any(p['id'] == default_id for p in partners)
-    #             if is_loaded:
-    #                 _logger.info(f"✅ Default customer {self.config_id.default_partner_id.name} loaded")
-    #             else:
-    #                 _logger.warning(f"⚠️ Default customer {self.config_id.default_partner_id.name} NOT loaded")
+            _logger.info(f"📊 Initial partners loaded: {len(partners)}")
             
-    #         for partner in partners:
-    #             # Handle category_id
-    #             if partner.get('category_id') and isinstance(partner['category_id'], list):
-    #                 partner['category_id'] = [int(cid) for cid in partner['category_id'] if str(cid).isdigit()]
+            if len(partners) == 0:
+                _logger.error("❌ CRITICAL: NO PARTNERS LOADED!")
+                _logger.error("   Customer list will be EMPTY in POS!")
+                _logger.error("   Check domain filters and partner data!")
+            else:
+                # Log sample partners
+                sample_names = [p['name'] for p in partners[:5]]
+                _logger.info(f"   Sample partners: {sample_names}")
+            
+            # ✅ CRITICAL: Validate dan force-load default customer
+            if self.config_id.default_partner_id:
+                default_id = self.config_id.default_partner_id.id
+                default_name = self.config_id.default_partner_id.name
+                
+                # Check apakah default customer sudah ter-load
+                is_loaded = any(p['id'] == default_id for p in partners)
+                
+                if is_loaded:
+                    _logger.info(f"✅ Default customer '{default_name}' (ID: {default_id}) already loaded")
+                else:
+                    _logger.warning(f"⚠️ Default customer '{default_name}' (ID: {default_id}) NOT in results!")
+                    _logger.warning(f"   This should NOT happen with proper domain!")
+                    _logger.warning(f"   Attempting force-load...")
                     
-    #             # Handle other relational fields
-    #             for field in ['state_id', 'country_id', 'property_account_position_id', 'property_product_pricelist']:
-    #                 if partner.get(field):
-    #                     if isinstance(partner[field], int):
-    #                         try:
-    #                             if field == 'state_id':
-    #                                 record = self.env['res.country.state'].browse(partner[field])
-    #                             elif field == 'country_id':
-    #                                 record = self.env['res.country'].browse(partner[field])
-    #                             elif field == 'property_account_position_id':
-    #                                 record = self.env['account.fiscal.position'].browse(partner[field])
-    #                             elif field == 'property_product_pricelist':
-    #                                 record = self.env['product.pricelist'].browse(partner[field])
-                                
-    #                             if record.exists():
-    #                                 partner[field] = [partner[field], record.name]
-    #                         except Exception:
-    #                             pass
-    #                     elif isinstance(partner[field], list) and len(partner[field]) >= 2:
-    #                         partner[field] = [int(partner[field][0]), str(partner[field][1])]
+                    # Force load the default customer
+                    try:
+                        default_partner = self.env['res.partner'].search_read(
+                            [('id', '=', default_id)],
+                            params['search_params']['fields'],
+                            limit=1
+                        )
+                        
+                        if default_partner:
+                            # Insert at beginning of list
+                            partners.insert(0, default_partner[0])
+                            _logger.info(f"✅ FORCE-LOADED default customer: '{default_name}'")
+                            _logger.info(f"   Total partners now: {len(partners)}")
+                        else:
+                            _logger.error(f"❌ Cannot force-load default customer!")
+                            _logger.error(f"   Partner ID {default_id} does not exist in database!")
+                            _logger.error(f"   Possible causes:")
+                            _logger.error(f"   1. Partner has been deleted")
+                            _logger.error(f"   2. Wrong ID in pos.config.default_partner_id")
+                            _logger.error(f"   3. Database corruption")
                             
-    #         _logger.info(f"✅ Loaded {len(partners)} res.partner records")
-    #         return partners
-    #     except Exception as e:
-    #         _logger.error(f"❌ Error loading res.partner: {e}")
-    #         return []
+                            # Check if partner exists at all
+                            partner_exists = self.env['res.partner'].search_count([('id', '=', default_id)])
+                            if partner_exists:
+                                partner = self.env['res.partner'].browse(default_id)
+                                _logger.error(f"   Partner EXISTS but search_read failed!")
+                                _logger.error(f"   Partner active: {partner.active}")
+                                _logger.error(f"   Partner name: {partner.name}")
+                            else:
+                                _logger.error(f"   Partner does NOT exist in database!")
+                            
+                    except Exception as e:
+                        _logger.error(f"❌ Error force-loading default customer: {e}")
+                        _logger.error(f"   Traceback: {traceback.format_exc()}")
+            else:
+                _logger.warning("⚠️ No default_partner_id configured in POS config")
+            
+            # Process relational fields
+            for partner in partners:
+                try:
+                    # Handle category_id (Many2many)
+                    if partner.get('category_id') and isinstance(partner['category_id'], list):
+                        partner['category_id'] = [int(cid) for cid in partner['category_id'] if str(cid).isdigit()]
+                    
+                    # Handle other relational fields (Many2one)
+                    for field in ['state_id', 'country_id', 'property_account_position_id', 'property_product_pricelist']:
+                        if partner.get(field):
+                            if isinstance(partner[field], int):
+                                # Convert int to [id, name] format
+                                try:
+                                    if field == 'state_id':
+                                        record = self.env['res.country.state'].browse(partner[field])
+                                    elif field == 'country_id':
+                                        record = self.env['res.country'].browse(partner[field])
+                                    elif field == 'property_account_position_id':
+                                        record = self.env['account.fiscal.position'].browse(partner[field])
+                                    elif field == 'property_product_pricelist':
+                                        record = self.env['product.pricelist'].browse(partner[field])
+                                    
+                                    if record.exists():
+                                        partner[field] = [partner[field], record.name]
+                                except Exception as e:
+                                    _logger.warning(f"⚠️ Error converting {field} for partner {partner.get('name')}: {e}")
+                            elif isinstance(partner[field], list) and len(partner[field]) >= 2:
+                                # Already in [id, name] format, normalize
+                                partner[field] = [int(partner[field][0]), str(partner[field][1])]
+                                
+                except Exception as e:
+                    _logger.warning(f"⚠️ Error processing partner {partner.get('id')}: {e}")
+                    continue
+            
+            # ✅ FINAL LOG
+            _logger.info(f"✅ FINAL: Successfully loaded {len(partners)} res.partner records")
+            
+            if len(partners) > 0:
+                _logger.info(f"   First 5 partners: {[p['name'] for p in partners[:5]]}")
+            else:
+                _logger.error(f"❌ CRITICAL: Final partner list is EMPTY!")
+            
+            return partners
+            
+        except Exception as e:
+            _logger.error(f"❌ CRITICAL ERROR in _get_pos_ui_res_partner: {e}")
+            _logger.error(f"   Traceback: {traceback.format_exc()}")
+            _logger.error(f"   This will cause POS to have NO customers!")
+            return []
 
-    # def _pos_ui_res_partner(self, params):
-    #     return self._get_pos_ui_res_partner(params)
+    def _pos_ui_res_partner(self, params):
+        """
+        Entry point untuk partner loading
+        """
+        return self._get_pos_ui_res_partner(params)
 
     def _loader_params_loyalty_program(self):
         return {
