@@ -2523,7 +2523,6 @@ class InvoiceOrder(http.Controller):
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
                 ('gm_is_dp', '=', False),  # Filter invoice dengan gm_is_dp = False
-                ('vit_pos_store', '!=', False),  # TAMBAHAN: Filter invoice dengan vit_pos_store tidak kosong
             ]
 
             pageSize = int(pageSize) if pageSize else 200
