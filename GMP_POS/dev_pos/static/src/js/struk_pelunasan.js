@@ -4,104 +4,120 @@ import { patch } from "@web/core/utils/patch";
 import { Order, Orderline } from "@point_of_sale/app/store/models";
 
 /**
- * 🎯 PELUNASAN Filter v3.0
- * Fixed: Works with display data format from getDisplayData()
+ * 🎯 PELUNASAN & ROUNDING Filter v6.0
+ * FIXED: Multiple detection methods for rounding
  */
 
-// =====================================================
-// PATCH 1: Override getDisplayData di Orderline
-// =====================================================
 patch(Orderline.prototype, {
-    /**
-     * Override getDisplayData untuk menambahkan flag isPelunasan
-     * Ini akan digunakan di template untuk filter
-     */
     getDisplayData() {
         const data = super.getDisplayData(...arguments);
         
-        // Tambahkan flag isPelunasan ke display data
         try {
             const product = this.get_product();
+            
+            // Check pelunasan
             data.isPelunasan = product?.gm_is_pelunasan === true;
             
+            // ✅ MULTIPLE DETECTION METHODS for rounding
+            const detectionMethods = {
+                byFlag: this.is_rounding_line === true,
+                byGmFlag: this.gm_is_rounding === true,
+                byProductFlag: product?.is_rounding_line === true,
+                byProductId: this.order?.pos?.config?.rounding_product_id && 
+                           product?.id === this.order.pos.config.rounding_product_id,
+                byProductName: product?.display_name?.includes('ROUNDING'),
+            };
+            
+            data.isRounding = Object.values(detectionMethods).some(v => v === true);
+            
+            if (data.isRounding) {
+                data.roundingAmount = this.get_price_with_tax();
+                console.log(`💰 [ROUNDING DETECTED] Product: ${product.display_name}`);
+                console.log('   Detection methods:', detectionMethods);
+                console.log('   Amount:', data.roundingAmount);
+                console.log('   Product ID:', product?.id);
+                console.log('   Config Rounding Product ID:', this.order?.pos?.config?.rounding_product_id);
+            }
+            
             if (data.isPelunasan) {
-                console.log(
-                    `🏷️ [PELUNASAN] Marked as pelunasan: ${product.display_name} ` +
-                    `(gm_is_pelunasan: ${product.gm_is_pelunasan})`
-                );
+                console.log(`🏷️ [PELUNASAN] Detected: ${product.display_name}`);
             }
         } catch (e) {
-            console.error('[PELUNASAN] Error in getDisplayData:', e);
+            console.error('[RECEIPT FILTER] Error in getDisplayData:', e);
             data.isPelunasan = false;
+            data.isRounding = false;
+            data.roundingAmount = 0;
         }
         
         return data;
     },
 });
 
-// =====================================================
-// PATCH 2: Filter di export_for_printing
-// =====================================================
 patch(Order.prototype, {
-    /**
-     * Override export_for_printing untuk filter pelunasan
-     * Bekerja dengan data yang sudah di-transform ke display format
-     */
     export_for_printing() {
         const result = super.export_for_printing(...arguments);
         
-        console.log('🔍 [PELUNASAN] Starting receipt filter v3...');
+        console.log('🔍 [RECEIPT FILTER v6.0] Starting...');
         
-        // Safety check
         if (!result.orderlines || !Array.isArray(result.orderlines)) {
-            console.warn('⚠️ [PELUNASAN] No orderlines found');
+            console.warn('⚠️ [RECEIPT FILTER] No orderlines found');
             return result;
         }
         
         const originalCount = result.orderlines.length;
-        console.log(`📊 [PELUNASAN] Total orderlines: ${originalCount}`);
+        console.log(`📊 [RECEIPT FILTER] Original orderlines: ${originalCount}`);
         
-        // Filter berdasarkan flag isPelunasan yang sudah di-set di getDisplayData
+        let pelunasanFiltered = 0;
+        let roundingFiltered = 0;
+        let roundingAmount = 0;
+        
         const filteredLines = result.orderlines.filter((line, index) => {
-            // Check flag isPelunasan
             const isPelunasan = line.isPelunasan === true;
+            const isRounding = line.isRounding === true;
+            
+            console.log(`🔍 Line ${index + 1}: ${line.productName}`, {
+                isPelunasan,
+                isRounding,
+                roundingAmount: line.roundingAmount,
+            });
             
             if (isPelunasan) {
-                console.log(
-                    `🚫 [PELUNASAN] Filtering line ${index + 1}: ${line.productName} ` +
-                    `(isPelunasan: ${isPelunasan})`
-                );
-                return false; // Filter out
-            } else {
-                console.log(
-                    `✅ [PELUNASAN] Keeping line ${index + 1}: ${line.productName} ` +
-                    `(isPelunasan: ${isPelunasan || false})`
-                );
-                return true; // Keep
+                pelunasanFiltered++;
+                console.log(`🚫 [PELUNASAN] Filtered: ${line.productName}`);
+                return false;
             }
+            
+            if (isRounding) {
+                roundingFiltered++;
+                roundingAmount = line.roundingAmount || line.price_with_tax || line.price || 0;
+                console.log(`💰 [ROUNDING] Filtered: ${line.productName}, Amount: ${roundingAmount}`);
+                return false;
+            }
+            
+            console.log(`✅ [KEEP] ${line.productName}`);
+            return true;
         });
         
-        // Update result
         result.orderlines = filteredLines;
         
-        const filteredCount = originalCount - filteredLines.length;
-        console.log('📊 [PELUNASAN] Filter summary:');
-        console.log(`   Original: ${originalCount}`);
-        console.log(`   Filtered: ${filteredCount}`);
-        console.log(`   Final: ${filteredLines.length}`);
-        
-        // Safety: prevent complete wipeout
-        if (filteredLines.length === 0 && originalCount > 0) {
-            console.error('❌ [PELUNASAN] ERROR: All lines filtered!');
-            console.error('   Reverting to original data');
-            
-            // Revert - gunakan original data tanpa filter
-            const originalResult = super.export_for_printing(...arguments);
-            return originalResult;
+        // Store rounding amount
+        if (roundingFiltered > 0 && Math.abs(roundingAmount) >= 0.01) {
+            result.rounding_amount = roundingAmount;
+            console.log(`✅ [ROUNDING] Stored amount: ${roundingAmount}`);
+        } else {
+            result.rounding_amount = 0;
         }
+        
+        console.log('📊 [RECEIPT FILTER] Summary:', {
+            original: originalCount,
+            pelunasanFiltered,
+            roundingFiltered,
+            final: filteredLines.length,
+            rounding_amount: result.rounding_amount
+        });
         
         return result;
     },
 });
 
-console.log("✅ [PELUNASAN] Receipt filter v3.0 loaded (works with display data)");
+console.log("✅ [RECEIPT FILTER v6.0] Loaded with enhanced detection");

@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="point_of_sale.PaymentScreenPaymentLines" t-inherit="point_of_sale.PaymentScreenPaymentLines" t-inherit-mode="extension">
+        
+        <!-- Override delete button untuk selected line -->
+        <xpath expr="//t[@t-if='line.selected']//button[hasclass('delete-button')]" position="replace">
+            <t t-if="!line.payment_status or !['done', 'reversed', 'waitingCard', 'waitingCapture'].includes(line.payment_status)">
+                <!-- ✅ Only show delete button if NOT a DP payment -->
+                <t t-if="!line.payment_method.gm_is_dp">
+                    <button class="delete-button btn btn-link mx-2 px-3"
+                        t-on-click="() => this.handleDeleteLine(line.cid)"
+                        aria-label="Delete" title="Delete">
+                        <i class="fa fa-2x fa-times-circle" />
+                    </button>
+                </t>
+                <!-- ✅ Show disabled button with different style for DP payments -->
+                <t t-else="">
+                    <button class="delete-button btn btn-link mx-2 px-3 opacity-25"
+                        disabled="disabled"
+                        aria-label="DP Payment - Cannot Delete" 
+                        title="Down Payment - Cannot Delete">
+                        <i class="fa fa-2x fa-lock text-muted" />
+                    </button>
+                </t>
+            </t>
+        </xpath>
+        
+        <!-- Override delete button untuk unselected line -->
+        <xpath expr="//t[@t-else='']//div[hasclass('delete-button')]" position="replace">
+            <t t-if="!line.payment_status or !['done', 'reversed'].includes(line.payment_status)">
+                <!-- ✅ Only show delete button if NOT a DP payment -->
+                <t t-if="!line.payment_method.gm_is_dp">
+                    <div class="delete-button btn btn-link mx-2 px-3"
+                        t-on-click="() => this.handleDeleteLine(line.cid)"
+                        aria-label="Delete" title="Delete">
+                        <i class="fa fa-2x fa-times-circle" />
+                    </div>
+                </t>
+                <!-- ✅ Show disabled button with different style for DP payments -->
+                <t t-else="">
+                    <div class="delete-button btn btn-link mx-2 px-3 opacity-25"
+                        style="cursor: not-allowed;"
+                        aria-label="DP Payment - Cannot Delete" 
+                        title="Down Payment - Cannot Delete">
+                        <i class="fa fa-2x fa-lock text-muted" />
+                    </div>
+                </t>
+            </t>
+        </xpath>
+        
+    </t>
+
+</templates>

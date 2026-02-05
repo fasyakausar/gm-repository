@@ -1,5 +1,6 @@
 <odoo>
   <data>
+    <!-- Tree View -->
     <record id="view_inventory_stock_tree" model="ir.ui.view">
         <field name="name">inventory.stock.tree</field>
         <field name="model">inventory.stock</field>
@@ -11,79 +12,118 @@
                 <field name="doc_num"/>
                 <field name="location_id"/>
                 <field name="company_id"/>
-                <field name="state" widget="badge"/>
+                <field name="state" widget="badge" 
+                       decoration-info="state == 'draft'"
+                       decoration-warning="state == 'in_progress'"
+                       decoration-primary="state == 'counted'"
+                       decoration-success="state == 'closed'"/>
             </tree>
         </field>
     </record>
 
-    <record id="view_barcode_scanner_wizard" model="ir.ui.view">
-        <field name="name">barcode.scanner.wizard.form</field>
-        <field name="model">barcode.scanner.wizard</field>
-        <field name="arch" type="xml">
-            <form string="📦 Barcode Scanner">
-            <sheet>
-                <group>
-                <field name="inventory_stock_id" invisible="1"/>
-                <field name="scanner_placeholder" widget="barcode_scanner_widget" readonly="1" />
-                </group>
-                <footer>
-                <button string="Close" type="object" name="action_close" class="btn-secondary"/>
-                </footer>
-            </sheet>
-            </form>
-        </field>
-    </record>
-
-    <record model="ir.ui.view" id="view_invetory_stock_form">
+    <!-- Form View -->
+    <record model="ir.ui.view" id="view_inventory_stock_form">
         <field name="name">inventory.stock.form</field>
         <field name="model">inventory.stock</field>
         <field name="arch" type="xml">
             <form>
                 <header>
-                    <button name="action_start_counting" string="Finish Counting" type="object" 
-                            class="oe_highlight" invisible="state in ('draft', 'counted', 'closed')"/>
-                    <button name="action_in_progress" string="In Progress" type="object" 
-                            class="oe_highlight" invisible="state in ('in_progress', 'counted', 'closed')"/>
-                    <button name="action_closed" string="Closed" type="object" 
-                            class="oe_highlight" invisible="state in ('draft', 'in_progress', 'closed')"/>
-                    <button name="open_barcode_scanner" string="📷 Scan" type="object"
-                            class="oe_highlight" invisible="state in ('counted', 'closed')"/>
-                    <field name="state" widget="statusbar" statusbar_visible="draft,in_progress,counted,closed"/>
+                    <!-- ✅ SIMPLIFIED: Hanya 3 button utama -->
+                    <button name="action_in_progress" string="Start Counting" type="object" 
+                            class="oe_highlight" 
+                            invisible="state != 'draft'"/>
+                    
+                    <button name="action_counted" string="Finish Counting" type="object" 
+                            class="oe_highlight" 
+                            invisible="state != 'in_progress'"/>
+                    
+                    <button name="action_closed" string="Close" type="object" 
+                            class="oe_highlight" 
+                            invisible="state != 'counted'"/>
+                    
+                    <field name="state" widget="statusbar" 
+                           statusbar_visible="draft,in_progress,counted,closed"/>
                 </header>
+                
                 <sheet>
-                <div class="oe_title">
-                    <h1>
-                        <field name="doc_num" readonly="1"/>
-                    </h1>
-                </div>
+                    <div class="oe_title">
+                        <h1>
+                            <field name="doc_num" readonly="1"/>
+                        </h1>
+                    </div>
+                    
                     <group>
                         <group>
-                            <field name="warehouse_id" readonly="state in ('counted', 'closed')"/>
-                            <field name="location_id" readonly="state in ('counted', 'closed')"/>
-                            <field name="inventory_date" readonly="state != 'draft'"/>
+                            <field name="warehouse_id" 
+                                   readonly="state in ('counted', 'closed')"/>
+                            <field name="location_id" 
+                                   readonly="state in ('counted', 'closed')"/>
+                            <field name="inventory_date" 
+                                   readonly="state != 'draft'"/>
                             <field name="is_integrated"/>
                         </group>
                         <group>
-                            <field name="company_id" readonly="state in ('counted', 'closed')"/>
+                            <field name="company_id" 
+                                   readonly="state in ('counted', 'closed')"/>
                             <field name="create_date" readonly="1"/>
+                            <field name="total_qty"/>
                             <field name="vit_notes"/>
-                            <field name="barcode_input" default_focus="1" invisible="state in ('counted', 'closed')"/>
                         </group>
                     </group>
+                    
+                    <group>
+                        <group>
+                            <field name="barcode_input" 
+                                   placeholder="Scan barcode here..." 
+                                   class="oe_inline"
+                                   style="font-size: 18px; font-weight: bold;"/>
+                        </group>
+                    </group>
+                    
                     <notebook>
                         <page string="Inventory Counting Lines">
                             <field name="inventory_counting_ids">
-                            <tree editable="bottom" export="1">
-                                <field name="product_id" readonly="state in ('counted', 'closed')"/>
-                                <field name="location_id" readonly="state in ('counted', 'closed')" optional="hide"/>
-                                <field name="lot_id" readonly="state in ('counted', 'closed')" optional="hide"/>
-                                <field name="inventory_date" readonly="state in ('counted', 'closed')" optional="hide"/>
-                                <field name="qty_hand" readonly="1" invisible="state in ('draft', 'in_progress')"/>
-                                <field name="counted_qty" readonly="state in ('counted', 'closed')"/>
-                                <field name="difference_qty" invisible="state in ('draft', 'in_progress')"/>
-                                <field name="uom_id" readonly="state in ('counted', 'closed')"/>
-                                <field name="state" optional="hide"/>
-                            </tree>
+                                <tree editable="bottom" 
+                                      export="1" 
+                                      decoration-success="difference_qty == 0"
+                                      decoration-danger="difference_qty != 0">
+                                    
+                                    <field name="sequence" invisible="1"/>
+                                    
+                                    <field name="product_id" 
+                                           readonly="state in ('counted', 'closed')"/>
+                                    
+                                    <field name="location_id" 
+                                           readonly="state in ('counted', 'closed')" 
+                                           optional="hide"/>
+                                    
+                                    <field name="lot_id" 
+                                           readonly="state in ('counted', 'closed')" 
+                                           optional="hide"/>
+                                    
+                                    <field name="inventory_date" 
+                                           readonly="state in ('counted', 'closed')" 
+                                           optional="hide"/>
+                                    
+                                    <field name="qty_hand" 
+                                           readonly="1" 
+                                           invisible="state in ('draft', 'in_progress')"/>
+                                    
+                                    <field name="counted_qty" 
+                                           readonly="state in ('counted', 'closed')"/>
+                                    
+                                    <field name="difference_qty" 
+                                           invisible="state in ('draft', 'in_progress')"
+                                           decoration-success="difference_qty == 0"
+                                           decoration-danger="difference_qty != 0"/>
+                                    
+                                    <field name="uom_id" 
+                                           readonly="state in ('counted', 'closed')"/>
+                                    
+                                    <field name="state" 
+                                           widget="badge"
+                                           optional="hide"/>
+                                </tree>
                             </field>
                         </page>
                     </notebook>
@@ -92,14 +132,22 @@
         </field>
     </record>
 
-    <!-- actions opening views on models -->
+    <!-- Action -->
     <record id="action_inventory_stock" model="ir.actions.act_window">
         <field name="name">Inventory Counting</field>
         <field name="res_model">inventory.stock</field>
         <field name="view_mode">tree,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Create your first Inventory Counting
+            </p>
+            <p>
+                Click the create button to start a new inventory counting session.
+            </p>
+        </field>
     </record>
 
-    <!-- Menambahkan menu di bawah Inventory -->
+    <!-- Menu -->
     <menuitem 
         id="menu_inventory_stock"
         name="Inventory Counting"

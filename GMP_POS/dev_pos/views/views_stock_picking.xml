@@ -16,6 +16,7 @@
             <field name="is_closed"/>
             <field name="vit_trxid"/>
             <field name="gm_type_transfer"/>
+            <field name="barcode_input" placeholder="Scan barcode here..." class="oe_inline" style="font-size: 18px; font-weight: bold;"/>
         </xpath>
         
         <!-- Field origin readonly ketika state ready/done -->

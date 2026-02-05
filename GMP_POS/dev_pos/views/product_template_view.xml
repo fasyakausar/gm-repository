@@ -13,7 +13,11 @@
             <field name="vit_item_type" readonly="1"/>
             <field name="gm_is_dp"/>
             <field name="gm_is_pelunasan"/>
+            <field name="gm_is_rounding"/>
             <field name="brand" readonly="1"/>
+            <field name="gm_sub_category" readonly="1"/>
+            <field name="gm_class" readonly="1"/>
+            <field name="gm_manufacturer" readonly="1"/>
         </xpath>
         
         <!-- Tambahkan field baru setelah product_tag_ids -->

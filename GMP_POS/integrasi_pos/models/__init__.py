@@ -38,7 +38,7 @@ from . import pos_order
 from . import pos_cashier_log
 from . import end_shift
 # from . import account_account
-# from . import inventory_counting
+from . import inventory_counting
 # from . import transfer_request
 # from . import res_config_settings
 # from . import partner_pin_code

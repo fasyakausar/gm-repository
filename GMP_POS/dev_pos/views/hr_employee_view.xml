@@ -15,7 +15,7 @@
             <page string="Access Right" name="access_right" groups="base.group_erp_manager">
                 <group>
                     <group>
-                        <field name="is_sales_person"/>
+                        <field name="is_sales"/>
                         <field name="is_cashier"/>
                         <field name="is_pic"/>
                     </group>

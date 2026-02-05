@@ -350,6 +350,10 @@ class PosSession(models.Model):
         if 'gm_is_card' not in result['search_params']['fields']:
             result['search_params']['fields'].append('gm_is_card')
             _logger.info("✅ Added gm_is_card to pos.payment.method loader")
+
+        if 'gm_is_dp' not in result['search_params']['fields']:
+            result['search_params']['fields'].append('gm_is_dp')
+            _logger.info("✅ Added gm_is_dp to pos.payment.method loader")
         
         return result
 
@@ -362,6 +366,13 @@ class PosSession(models.Model):
         # Log payment methods dengan gm_is_card
         card_methods = [pm for pm in payment_methods if pm.get('gm_is_card')]
         non_card_methods = [pm for pm in payment_methods if not pm.get('gm_is_card')]
+
+        dp_methods = [pm for pm in payment_methods if pm.get('gm_is_dp')]
+    
+        if dp_methods:
+            _logger.info(f"💰 DP Payment Methods (gm_is_dp=True):")
+            for pm in dp_methods:
+                _logger.info(f"   - {pm.get('name')} (ID: {pm.get('id')})")
         
         _logger.info(f"📊 Payment Method Loading Summary:")
         _logger.info(f"   Total payment methods: {len(payment_methods)}")
@@ -618,6 +629,17 @@ class PosSession(models.Model):
                 except Exception:
                     manager = None
 
+            # Safely get rounding_product_id
+            rounding_product_id = config.get_param('pos.rounding_product_id')
+            rounding_product = None
+            if rounding_product_id and str(rounding_product_id).isdigit():
+                try:
+                    rounding_product = self.env['product.product'].browse(int(rounding_product_id))
+                    if not rounding_product.exists():
+                        rounding_product = None
+                except Exception:
+                    rounding_product = None
+
             # Get digits config safely
             total_digits = config.get_param('reward_point_total_digits', '16')
             decimal_digits = config.get_param('reward_point_decimal_digits', '4')
@@ -648,9 +670,24 @@ class PosSession(models.Model):
                 'reward_point_decimal_digits': int(decimal_digits) if str(decimal_digits).isdigit() else 4,
                 'manager_pin': manager.pin if manager else '',
                 'manager_name': manager.name if manager else '',
+                
+                # ✅ TAMBAHAN UNTUK AUTO ROUNDING
+                'enable_auto_rounding': config.get_param('pos.enable_auto_rounding', 'False') == 'True',
+                'rounding_value': int(config.get_param('pos.rounding_value', '100')) if config.get_param('pos.rounding_value', '100').isdigit() else 100,
+                'rounding_product_id': {
+                    'id': rounding_product.id if rounding_product else None,
+                    'name': rounding_product.name if rounding_product else None,
+                } if rounding_product else None,
             }
             
-            _logger.info("✅ Loaded res.config.settings")
+            _logger.info("✅ Loaded res.config.settings with rounding config")
+            if result['enable_auto_rounding']:
+                _logger.info(f"   🔄 Auto Rounding: ENABLED")
+                _logger.info(f"   💯 Rounding Value: {result['rounding_value']}")
+                _logger.info(f"   📦 Rounding Product: {result['rounding_product_id']['name'] if result['rounding_product_id'] else 'NOT SET'}")
+            else:
+                _logger.info(f"   🔄 Auto Rounding: DISABLED")
+                
             return [result]
         except Exception as e:
             _logger.error(f"❌ Error loading res.config.settings: {e}")
@@ -680,6 +717,10 @@ class PosSession(models.Model):
                 'reward_point_decimal_digits': 4,
                 'manager_pin': '',
                 'manager_name': '',
+                # ✅ DEFAULT UNTUK ROUNDING
+                'enable_auto_rounding': False,
+                'rounding_value': 100,
+                'rounding_product_id': None,
             }]
 
     def _pos_ui_res_config_settings(self, params):
@@ -695,6 +736,10 @@ class PosSession(models.Model):
         if 'gm_is_pelunasan' not in result['search_params']['fields']:
             result['search_params']['fields'].append('gm_is_pelunasan')
             _logger.info("✅ Added gm_is_pelunasan to product.product loader")
+        
+        if 'gm_is_rounding' not in result['search_params']['fields']:
+            result['search_params']['fields'].append('gm_is_rounding')
+            _logger.info("✅ Added gm_is_rounding to product.product loader")
         
         _logger.info(f"📦 Product loader fields: {result['search_params']['fields']}")
         

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Sales Order Form View - Order Lines Tree -->
+    <record id="view_order_form_qty_on_hand" model="ir.ui.view">
+        <field name="name">sale.order.form.qty.on.hand</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <!-- Add qty_on_hand in tree view of order_line -->
+            <xpath expr="//field[@name='order_line']/tree/field[@name='product_uom_qty']" position="after">
+                <field name="qty_on_hand" 
+                       readonly="1" 
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Sales Order Line Tree View (standalone) - jika ada -->
+    <record id="view_order_line_tree_qty_on_hand" model="ir.ui.view">
+        <field name="name">sale.order.line.tree.qty.on.hand</field>
+        <field name="model">sale.order.line</field>
+        <field name="inherit_id" ref="sale.view_order_line_tree"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='product_uom_qty']" position="after">
+                <field name="qty_on_hand" 
+                       readonly="1" 
+                       optional="show"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Stock Picking Form View - Stock Move (Operations Tab) -->
+    <record id="view_picking_form_qty_on_hand_move" model="ir.ui.view">
+        <field name="name">stock.picking.form.qty.on.hand.move</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <!-- Add to move_ids_without_package (Operations) -->
+            <xpath expr="//field[@name='move_ids_without_package']/tree/field[@name='product_uom_qty']" position="after">
+                <field name="qty_on_hand" 
+                       readonly="1" 
+                       optional="show"
+                       column_invisible="parent.picking_type_code != 'outgoing'"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Stock Picking Form View - Show qty_on_hand field -->
+    <record id="view_picking_form_show_qty_on_hand" model="ir.ui.view">
+        <field name="name">stock.picking.form.show.qty.on.hand</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='picking_type_code']" position="after">
+                <field name="show_qty_on_hand" invisible="1"/>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

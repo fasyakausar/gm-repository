@@ -171,9 +171,11 @@ class SalesReportDetail(models.TransientModel):
         worksheet.write(1, 0, "[ {} - {} ]".format(tanggal_dari, tanggal_sampai))
         worksheet.write(2, 0, "Dicetak Tanggal {}".format(tanggal_cetak))
 
+        # Updated header with DP Code column
         header = [
             'User', 'Kasir', 'Customer Code', 'Customer Name', 'Kode Currency', 'Kode Store','Nama Store',
-            'Invoice No.', 'Order No.', 'Session', 'No Retur', 'No HP', 'Tanggal', 'Tanggal Jatuh Tempo'
+            'Invoice No.', 'Order No.', 'Session', 'No Retur', 'No HP', 'Tanggal', 'Tanggal Jatuh Tempo',
+            'DP Code',  # New column added here
             'Total Quantity', 'Total Bersih'
         ]
 
@@ -185,7 +187,22 @@ class SalesReportDetail(models.TransientModel):
             total_qty = sum(order.lines.mapped('qty'))
             total_bersih = sum(order.lines.mapped('price_subtotal_incl'))
             local_date_order = fields.Datetime.context_timestamp(self, order.date_order)
-
+            
+            # Get DP Code / gift_card_code
+            dp_code = ''
+            # Option 1: If gift_card_code is a direct field on pos.order
+            if hasattr(order, 'gift_card_code'):
+                dp_code = order.gift_card_code or ''
+            # Option 2: If it's related to loyalty card
+            elif hasattr(order, 'loyalty_card_id') and order.loyalty_card_id:
+                dp_code = order.loyalty_card_id.code or ''
+            # Option 3: If it's from loyalty history
+            elif hasattr(order, 'loyalty_history_ids') and order.loyalty_history_ids:
+                # Get the first loyalty history record's card code
+                loyalty_history = order.loyalty_history_ids.filtered(lambda l: l.card_id)
+                if loyalty_history:
+                    dp_code = loyalty_history[0].card_id.code or ''
+            
             worksheet.write(row, 0, order.user_id.name or '')
             worksheet.write(row, 1, order.employee_id.name or '')
             worksheet.write(row, 2, order.partner_id.customer_code or '')
@@ -200,8 +217,9 @@ class SalesReportDetail(models.TransientModel):
             worksheet.write(row, 11, order.partner_id.mobile or '')
             worksheet.write(row, 12, local_date_order.strftime('%d/%m/%Y %H:%M:%S'))
             worksheet.write(row, 13, local_date_order.strftime('%d/%m/%Y %H:%M:%S'))
-            worksheet.write(row, 14, total_qty or '')
-            worksheet.write(row, 15, self.format_number(total_bersih) if total_bersih else '')
+            worksheet.write(row, 14, dp_code)  # DP Code column
+            worksheet.write(row, 15, total_qty or '')
+            worksheet.write(row, 16, self.format_number(total_bersih) if total_bersih else '')
             row += 1
 
         workbook.close()

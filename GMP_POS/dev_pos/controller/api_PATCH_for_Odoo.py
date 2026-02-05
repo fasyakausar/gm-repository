@@ -936,14 +936,14 @@ def update_stock_picking(return_id, gm_type_transfer, operation_name):
 class AccountMovePATCH(http.Controller):
     @http.route(['/api/invoice_order/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_invoice_order(self, return_id, **kwargs):
-        return self._update_account_move(return_id, 'out_invoice', 'Invoice')
+        return self._update_account_move(return_id, 'out_invoice', 'Invoice', allow_cancel=True)
 
     @http.route(['/api/credit_memo/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_credit_memo(self, return_id, **kwargs):
-        return self._update_account_move(return_id, 'out_refund', 'Credit Memo')
+        return self._update_account_move(return_id, 'out_refund', 'Credit Memo', allow_cancel=False)
 
     @staticmethod
-    def _update_account_move(return_id, move_type, operation_name):
+    def _update_account_move(return_id, move_type, operation_name, allow_cancel=False):
         try:
             # Get configuration
             config = request.env['setting.config'].sudo().search([('vit_config_server', '=', 'mc')], limit=1)
@@ -971,14 +971,33 @@ class AccountMovePATCH(http.Controller):
 
             data = request.get_json_data()
             is_integrated = data.get('is_integrated')
+            cancel = data.get('cancel')  # ✅ Ambil parameter cancel
 
-            if not isinstance(is_integrated, bool):
+            # Validasi is_integrated
+            if is_integrated is not None and not isinstance(is_integrated, bool):
                 return {
                     'code': 400,
                     'status': 'error',
                     'message': f'Invalid data: is_integrated must be a boolean',
                     'id': return_id
                 }
+
+            # ✅ Validasi cancel (hanya untuk invoice_order)
+            if cancel is not None:
+                if not allow_cancel:
+                    return {
+                        'code': 400,
+                        'status': 'error',
+                        'message': f'Cancel parameter is not allowed for {operation_name}',
+                        'id': return_id
+                    }
+                if not isinstance(cancel, bool):
+                    return {
+                        'code': 400,
+                        'status': 'error',
+                        'message': f'Invalid data: cancel must be a boolean',
+                        'id': return_id
+                    }
 
             account_move = env['account.move'].sudo().search([
                 ('id', '=', return_id),
@@ -993,16 +1012,33 @@ class AccountMovePATCH(http.Controller):
                     'id': return_id
                 }
 
-            account_move.write({
-                'is_integrated': is_integrated,
+            # ✅ Prepare data untuk update
+            update_data = {
                 'write_uid': uid
-            })
+            }
+
+            if is_integrated is not None:
+                update_data['is_integrated'] = is_integrated
+
+            # ✅ Update gm_is_cancel jika cancel = True
+            if allow_cancel and cancel is not None:
+                update_data['gm_is_cancel'] = cancel
+
+            account_move.write(update_data)
+
+            # ✅ Response message yang lebih informatif
+            updated_fields = []
+            if is_integrated is not None:
+                updated_fields.append(f"is_integrated={is_integrated}")
+            if allow_cancel and cancel is not None:
+                updated_fields.append(f"gm_is_cancel={cancel}")
 
             return {
                 'code': 200,
                 'status': 'success',
-                'message': f'{operation_name} updated successfully',
-                'id': return_id
+                'message': f'{operation_name} updated successfully ({", ".join(updated_fields)})',
+                'id': return_id,
+                'updated_fields': update_data
             }
 
         except Exception as e:

@@ -15,3 +15,4 @@ class AccountMove(models.Model):
         readonly=True,
         help='Location source from delivery picking (complete name)'
     )
+    gm_is_cancel = fields.Boolean(string="Cancel", readonly=True, default=False, tracking=True)

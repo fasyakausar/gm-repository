@@ -14,13 +14,14 @@
                 </div>
 
                 <div class="input-container my-2">
+                    <!-- ✅ Display formatted value (read-only) -->
                     <input
                         type="text"
-                        t-att-value="state.inputValue"
-                        t-on-input="handleTyping"
-                        t-ref="numberInput"
-                        placeholder="Masukkan angka"
-                        class="form-control"
+                        t-att-value="state.displayValue"
+                        readonly="readonly"
+                        placeholder="0"
+                        class="form-control text-center fw-bold"
+                        style="font-size: 28px; letter-spacing: 1px;"
                     />
                 </div>
 

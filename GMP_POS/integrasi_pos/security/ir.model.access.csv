@@ -3,3 +3,5 @@ access_pos_cashier_log,access_pos.cashier.log,model_pos_cashier_log,base.group_u
 access_end_shift,access_end.shift,model_end_shift,base.group_user,1,1,1,1
 access_end_shift_line,access_end.shift.line,model_end_shift_line,base.group_user,1,1,1,1
 access_end_shift_notes_wizard,access_end.shift.notes.wizard,model_end_shift_notes_wizard,base.group_user,1,1,1,1
+access_inventory_counting,access_inventory.counting,model_inventory_counting,base.group_user,1,1,1,1
+access_inventory_stock,access_inventory.stock,model_inventory_stock,base.group_user,1,1,1,1
