@@ -1,0 +1,38 @@
+<odoo>
+    <record id="pos_manager_validation_res_config_settings" model="ir.ui.view">
+        <field name="name">pos.manager.validation.res.config.settings.view.form</field>
+        <field name="model">res.config.settings</field>
+        <field name="inherit_id" ref="point_of_sale.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+
+            <!-- AUTO ROUNDING CONFIGURATION -->
+            <app data-string="Point of sale" string="Point of Sale" name="point_of_sale" groups="point_of_sale.group_pos_manager">
+                <block title="Auto Rounding Configuration" id="pos_auto_rounding_section">
+                    <setting id="enable_auto_rounding" string="Enable Auto Rounding"
+                        help="Automatically round total amount to nearest rounding value when clicking payment button.">
+                        <field name="enable_auto_rounding"/>
+                        <div class="text-muted" invisible="enable_auto_rounding != True">
+                            System will automatically round to the nearest value (up or down).
+                        </div>
+                    </setting>
+                    <setting id="rounding_value" string="Rounding Value"
+                        help="Value to round to (e.g., 100 for hundreds, 1000 for thousands)."
+                        invisible="enable_auto_rounding != True">
+                        <field name="rounding_value"/>
+                        <div class="text-muted">
+                            Example: 100 → rounds to nearest hundred (11,150 → 11,200 or 11,140 → 11,100)
+                        </div>
+                    </setting>
+                    <setting id="rounding_product_id" string="Rounding Product"
+                        help="Product used for rounding adjustment line in POS."
+                        invisible="enable_auto_rounding != True">
+                        <field name="rounding_product_id" 
+                               domain="[('available_in_pos', '=', True)]"
+                               context="{'default_available_in_pos': True}"/>
+                    </setting>
+                </block>
+            </app>
+
+        </field>
+    </record>
+</odoo>

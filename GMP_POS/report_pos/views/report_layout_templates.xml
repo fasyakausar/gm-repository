@@ -17,7 +17,7 @@
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
-              <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+              <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
               <h5 class="text-center">Laporan Penjualan</h5>
               <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -100,12 +100,6 @@
     <t t-call="portal.portal_layout">
       <t t-set="no_breadcrumbs" t-value="1"/>
         <div class="o_portal_my_doc_table table-responsive">
-          <!-- <div class="o_download_pdf d-flex flex-lg-column flex-xl-row flex-wrap gap-2">
-            <a t-att-href="'/my/sales/report/detail/pdf?date_from=%s&amp;date_to=%s' % (date_from, date_to)"
-              class="btn btn-primary mb-3">
-              <i class="fa fa-download"/> Download PDF
-            </a>
-          </div> -->
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
@@ -117,14 +111,15 @@
                 <thead class="table-secondary">
                   <tr>
                     <th style="width: 5%;">No</th>
-                    <th style="width: 15%;">Nomor Faktur</th>
-                    <th style="width: 10%;">Nomor Order</th>
-                    <th style="width: 10%;">Session</th>
+                    <th style="width: 12%;">Nomor Faktur</th>
+                    <th style="width: 8%;">Nomor Order</th>
+                    <th style="width: 8%;">Session</th>
                     <th style="width: 5%;">Lokasi</th>
-                    <th style="width: 15%;">Tanggal</th>
-                    <th style="width: 20%;">Customer</th>
-                    <th style="width: 8%;">Quantity</th>
-                    <th style="width: 12%;">Nominal</th>
+                    <th style="width: 12%;">Tanggal</th>
+                    <th style="width: 15%;">Customer</th>
+                    <th style="width: 10%;">DP Code</th>
+                    <th style="width: 5%;">Quantity</th>
+                    <th style="width: 10%;">Nominal</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -140,16 +135,23 @@
                       <td style="white-space: normal; word-wrap: break-word;">
                         <t t-esc="order.partner_id.name or ''"/>
                       </td>
-                      <td><t t-esc="sum(order.lines.mapped('qty') or [0])"/></td>
-                      <td><t t-esc="format_number(sum(order.lines.mapped('price_subtotal_incl') or [0]))"/></td>
+                      <td>
+                        <t t-esc="order.get_dp_code()"/>
+                      </td>
+                      <td class="text-end">
+                        <t t-esc="sum(order.lines.mapped('qty') or [0])"/>
+                      </td>
+                      <td class="text-end">
+                        <t t-esc="format_number(sum(order.lines.mapped('price_subtotal_incl') or [0]))"/>
+                      </td>
                     </tr>
                     <t t-set="counter" t-value="counter + 1"/>
                   </t>
                 </tbody>
               </table>
             </div>
-          </div>
-        </div>
+          </div>  
+        </div> 
     </t>
   </template>
 
@@ -173,7 +175,7 @@
       </style>
 
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -236,7 +238,7 @@
   <!-- <template id="report_sales_hourly" name="Report Sales Hourly">
     <t t-call="web.html_container">
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -282,7 +284,7 @@
   <template id="report_sales_hourly_category" name="Report Sales Hourly Category">
     <t t-call="web.html_container">
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -324,7 +326,7 @@
   </template> -->
 
   <template id="report_sales_settlement_end_of_shift" name="Report Sales Settlement End of Shift">
-    <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+    <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
     <t t-set="o_portal_fullwidth_alert">
       <t t-call="report_pos.portal_back_in_edit_mode"/>
     </t>
@@ -334,7 +336,7 @@
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
-              <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+              <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
               <h5 class="text-center">Laporan Penjualan</h5>
               <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 

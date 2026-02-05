@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <!-- Override back button di PaymentScreenTop (Desktop) -->
+    <t t-name="point_of_sale.PaymentScreenTop" t-inherit="point_of_sale.PaymentScreenTop" t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('button', 'back')]" position="replace">
+            <div class="button back btn btn-lg btn-secondary" t-on-click="onBackClick">
+                <i class="fa fa-angle-double-left me-2" />
+                <span class="back_text">Back</span>
+            </div>
+        </xpath>
+    </t>
+
+</templates>

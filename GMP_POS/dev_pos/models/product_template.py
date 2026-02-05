@@ -26,7 +26,15 @@ class ProductTemplate(models.Model):
         string="Is DP Payment?",
         help="Check this if this is a Down Payment Payment product"
     )
+    # ✅ TAMBAHAN: Field untuk Rounding Product
+    gm_is_rounding = fields.Boolean(
+        string="Is Rounding Product?",
+        help="Check this if this is a Rounding Adjustment product (will not appear on receipt)"
+    )
     brand = fields.Char(string="Brand", tracking=True)
+    gm_sub_category = fields.Char(string="Sub Category", tracking=True)
+    gm_class = fields.Char(string="Class", tracking=True)
+    gm_manufacturer = fields.Char(string="Manufacturer", tracking=True)
 
     def _check_barcode_uniqueness(self):
         # Override untuk mematikan validasi barcode unik
@@ -54,6 +62,8 @@ class ProductTemplate(models.Model):
                 'product_tag_ids': record.product_tag_ids.mapped('name'),
                 'gm_is_dp': record.gm_is_dp,
                 'gm_is_dp_payment': record.gm_is_dp_payment,
+                'gm_is_pelunasan': record.gm_is_pelunasan,
+                'gm_is_rounding': record.gm_is_rounding,  # ✅ TAMBAHAN
             }
         
         # Panggil super write
@@ -70,6 +80,16 @@ class ProductTemplate(models.Model):
             for record in self:
                 # Update all variants of this template
                 record.product_variant_ids.write({'gm_is_dp_payment': vals['gm_is_dp_payment']})
+        
+        # ✅ TAMBAHAN: Sync gm_is_pelunasan ke product.product variants
+        if 'gm_is_pelunasan' in vals:
+            for record in self:
+                record.product_variant_ids.write({'gm_is_pelunasan': vals['gm_is_pelunasan']})
+        
+        # ✅ TAMBAHAN: Sync gm_is_rounding ke product.product variants
+        if 'gm_is_rounding' in vals:
+            for record in self:
+                record.product_variant_ids.write({'gm_is_rounding': vals['gm_is_rounding']})
         
         # Log ke chatter untuk list_price dan product_tag_ids
         for record in self:
@@ -116,6 +136,18 @@ class ProductTemplate(models.Model):
                 new_dp_payment = vals['gm_is_dp_payment']
                 message_body += f"\nIs DP Payment? changed: {old_dp_payment} → {new_dp_payment}"
             
+            # ✅ TAMBAHAN: Log untuk gm_is_pelunasan
+            if 'gm_is_pelunasan' in vals:
+                old_pelunasan = old_values[record.id]['gm_is_pelunasan']
+                new_pelunasan = vals['gm_is_pelunasan']
+                message_body += f"\nIs Pelunasan? changed: {old_pelunasan} → {new_pelunasan}"
+            
+            # ✅ TAMBAHAN: Log untuk gm_is_rounding
+            if 'gm_is_rounding' in vals:
+                old_rounding = old_values[record.id]['gm_is_rounding']
+                new_rounding = vals['gm_is_rounding']
+                message_body += f"\nIs Rounding Product? changed: {old_rounding} → {new_rounding}"
+            
             # Post message ke chatter jika ada perubahan
             if message_body:
                 record.message_post(body=message_body)
@@ -134,6 +166,14 @@ class ProductTemplate(models.Model):
         # Sync gm_is_dp_payment ke product.product variants saat create
         if 'gm_is_dp_payment' in vals:
             record.product_variant_ids.write({'gm_is_dp_payment': vals['gm_is_dp_payment']})
+        
+        # ✅ TAMBAHAN: Sync gm_is_pelunasan ke product.product variants saat create
+        if 'gm_is_pelunasan' in vals:
+            record.product_variant_ids.write({'gm_is_pelunasan': vals['gm_is_pelunasan']})
+        
+        # ✅ TAMBAHAN: Sync gm_is_rounding ke product.product variants saat create
+        if 'gm_is_rounding' in vals:
+            record.product_variant_ids.write({'gm_is_rounding': vals['gm_is_rounding']})
         
         message_body = "Product created with following information:\n"
         
@@ -164,6 +204,14 @@ class ProductTemplate(models.Model):
         if 'gm_is_dp_payment' in vals:
             message_body += f"- Is DP Payment?: {vals['gm_is_dp_payment']}\n"
         
+        # ✅ TAMBAHAN: Log gm_is_pelunasan jika ada
+        if 'gm_is_pelunasan' in vals:
+            message_body += f"- Is Pelunasan?: {vals['gm_is_pelunasan']}\n"
+        
+        # ✅ TAMBAHAN: Log gm_is_rounding jika ada
+        if 'gm_is_rounding' in vals:
+            message_body += f"- Is Rounding Product?: {vals['gm_is_rounding']}\n"
+        
         record.message_post(body=message_body)
         
         return record
@@ -181,6 +229,17 @@ class ProductProductInherit(models.Model):
     gm_is_dp_payment = fields.Boolean(
         string="Is DP Payment?",
         help="This is a Down Payment Payment product",
+        # Tidak perlu related karena kita sync manual untuk lebih reliable
+    )
+    gm_is_pelunasan = fields.Boolean(
+        string="Is DP Pelunasan?",
+        help="This is a Down Payment Pelunasan product (will not appear on receipt)",
+        # Tidak perlu related karena kita sync manual untuk lebih reliable
+    )
+    # ✅ TAMBAHAN: Field untuk Rounding Product
+    gm_is_rounding = fields.Boolean(
+        string="Is Rounding Product?",
+        help="This is a Rounding Adjustment product (will not appear on receipt)",
         # Tidak perlu related karena kita sync manual untuk lebih reliable
     )
 

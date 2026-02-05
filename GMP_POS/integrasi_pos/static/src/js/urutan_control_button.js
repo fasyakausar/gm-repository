@@ -25,7 +25,6 @@ patch(ProductScreen.prototype, {
             'CustomerNoteButton',        // 12
             'DefaultPricelistButton',    // 13
             'CashRegisterButton',        // 14
-            'CloseShiftButton',          // 15
         ];
         
         // Urutkan buttons berdasarkan buttonOrder

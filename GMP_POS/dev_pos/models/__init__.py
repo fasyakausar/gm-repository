@@ -34,7 +34,7 @@ from . import loyalty_card
 from . import account_journal
 from . import master_type
 from . import account_account
-from . import inventory_counting
+# from . import inventory_counting
 from . import barcode_settings
 from . import multiple_barcode
 from . import print_barcode
@@ -52,3 +52,6 @@ from . import loyalty_generate_wizard
 from . import pos_order_debug
 from . import fix_gift_card
 from . import is_dp
+from . import qty_on_hand
+from . import rounding_pos
+from . import scan_barcode_so_inventory

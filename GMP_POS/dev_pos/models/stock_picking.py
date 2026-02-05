@@ -79,7 +79,59 @@ class StockPicking(models.Model):
                     vals['location_dest_id'] = transit_location.id
                     _logger.info(f"TSOUT Create: Set destination to transit location: {transit_location.name}")
         
-        return super(StockPicking, self).create(vals)
+        # 🔥 CREATE PICKING DULU
+        picking = super(StockPicking, self).create(vals)
+        
+        # 🔥 FORCE UPDATE LAGI setelah create untuk TSOUT
+        if picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name:
+            transit_location = self.env['stock.location'].search([
+                ('usage', '=', 'transit'),
+                ('company_id', '=', picking.company_id.id)
+            ], limit=1)
+            
+            if transit_location and picking.location_dest_id.id != transit_location.id:
+                _logger.warning(f"TSOUT location_dest_id was changed! Forcing back to transit...")
+                picking.with_context(skip_location_check=True).write({
+                    'location_dest_id': transit_location.id
+                })
+                
+                # 🔥 UPDATE SEMUA MOVE LINES juga
+                for move in picking.move_ids_without_package:
+                    move.write({
+                        'location_dest_id': transit_location.id
+                    })
+                _logger.info(f"TSOUT Create: FORCED destination to transit location: {transit_location.name}")
+        
+        return picking
+    
+    def write(self, vals):
+        """
+        Override write to prevent location_dest_id from being changed for TSOUT
+        """
+        res = super(StockPicking, self).write(vals)
+        
+        # 🔥 Protect TSOUT destination location
+        for picking in self:
+            if picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name:
+                transit_location = self.env['stock.location'].search([
+                    ('usage', '=', 'transit'),
+                    ('company_id', '=', picking.company_id.id)
+                ], limit=1)
+                
+                if transit_location and picking.location_dest_id.id != transit_location.id:
+                    if not self.env.context.get('skip_location_check'):
+                        _logger.warning(f"TSOUT destination changed to {picking.location_dest_id.name}, reverting to transit...")
+                        super(StockPicking, picking).write({
+                            'location_dest_id': transit_location.id
+                        })
+                        
+                        # Update move lines juga
+                        for move in picking.move_ids_without_package:
+                            move.write({
+                                'location_dest_id': transit_location.id
+                            })
+        
+        return res
 
     def button_validate(self):
         """

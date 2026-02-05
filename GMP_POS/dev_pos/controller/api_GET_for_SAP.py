@@ -548,11 +548,11 @@ class PaymentInvoiceAPI(http.Controller):
             jakarta_tz = pytz.timezone('Asia/Jakarta')
 
             # =================================================
-            # DOMAIN POS ORDER (SALE ONLY, NO REFUND)
+            # DOMAIN POS ORDER
             # =================================================
             domain = [
                 ('state', '=', 'invoiced'),
-                ('amount_total', '>', 0)   # ⬅️ SALE ONLY
+                ('amount_total', '>', 0)
             ]
 
             if q:
@@ -561,11 +561,27 @@ class PaymentInvoiceAPI(http.Controller):
             if company_id:
                 domain.append(('company_id', '=', int(company_id)))
 
-            if createdDateFrom:
-                domain.append(('create_date', '>=', createdDateFrom))
+            # =================================================
+            # FILTER is_integrated DI LEVEL ORDER
+            # =================================================
+            if is_integrated is not None:
+                is_integrated_bool = str(is_integrated).lower() == 'true'
+                domain.append(('payment_ids.is_integrated', '=', is_integrated_bool))
 
-            if createdDateTo:
-                domain.append(('create_date', '<=', createdDateTo))
+            # =================================================
+            # FILTER TANGGAL
+            # =================================================
+            if createdDateFrom or createdDateTo:
+                date_domain = []
+                
+                if createdDateFrom:
+                    date_domain.append(('create_date', '>=', createdDateFrom))
+                
+                if createdDateTo:
+                    date_domain.append(('create_date', '<=', createdDateTo))
+                
+                if date_domain:
+                    domain.extend(date_domain)
 
             # =================================================
             # FETCH POS ORDERS
@@ -582,28 +598,23 @@ class PaymentInvoiceAPI(http.Controller):
             for order in orders:
 
                 # =================================================
-                # POS PAYMENTS (ONLY POSITIVE / NO REFUND)
+                # POS PAYMENTS - AMBIL SEMUA (TERMASUK NEGATIF/CHANGE)
                 # =================================================
                 payment_domain = [
-                    ('pos_order_id', '=', order.id),
-                    ('amount', '>', 0)   # ⬅️ EXCLUDE REFUND PAYMENT
+                    ('pos_order_id', '=', order.id)
+                    # TIDAK LAGI FILTER amount > 0, ambil semua termasuk kembalian
                 ]
-
-                if is_integrated is not None:
-                    is_integrated_bool = str(is_integrated).lower() == 'true'
-                    payment_domain.append(
-                        ('is_integrated', '=', is_integrated_bool)
-                    )
 
                 pos_payments = request.env['pos.payment'].sudo().search(
                     payment_domain
                 )
 
+                # Cek apakah ada payment (minimal 1)
                 if not pos_payments:
                     continue
 
                 # =================================================
-                # PICKING / LOCATION
+                # [KODE SEBELUMNYA TETAP SAMA...]
                 # =================================================
                 picking = request.env['stock.picking'].sudo().search(
                     [('origin', '=', order.name)],
@@ -614,6 +625,20 @@ class PaymentInvoiceAPI(http.Controller):
                 location = (
                     picking.location_id.complete_name if picking else ''
                 )
+
+                # =================================================
+                # ORDER REFERENCE (from customer_note)
+                # =================================================
+                order_reference = ''
+                for line in order.lines:
+                    if line.customer_note:
+                        referenced_order = request.env['pos.order'].sudo().search(
+                            [('gift_card_code', '=', line.customer_note)],
+                            limit=1
+                        )
+                        if referenced_order:
+                            order_reference = referenced_order.name
+                            break
 
                 # =================================================
                 # ITEM (DP PRIORITY)
@@ -640,12 +665,21 @@ class PaymentInvoiceAPI(http.Controller):
                     display_item = items[0] if items else None
 
                 # =================================================
-                # GROUP PAYMENTS BY METHOD
+                # GROUP PAYMENTS BY METHOD (DENGAN NETO AMOUNT)
                 # =================================================
                 payment_groups = {}
                 order_is_integrated = False
 
-                for pay in pos_payments:
+                # Filter payments berdasarkan is_integrated jika parameter ada
+                filtered_payments = []
+                if is_integrated is not None:
+                    is_integrated_bool = str(is_integrated).lower() == 'true'
+                    filtered_payments = [p for p in pos_payments if p.is_integrated == is_integrated_bool]
+                else:
+                    filtered_payments = pos_payments
+                
+                # Group payments dan hitung NETO (positif + negatif)
+                for pay in filtered_payments:
                     if pay.is_integrated:
                         order_is_integrated = True
 
@@ -662,7 +696,7 @@ class PaymentInvoiceAPI(http.Controller):
                             'id': pay.id,
                             'payment_date': str(payment_date),
                             'create_date': str(payment_date),
-                            'amount': pay.amount,
+                            'amount': pay.amount,  # bisa positif atau negatif
                             'payment_method_pos_id': method_id,
                             'payment_method_pos': pay.payment_method_id.name,
                             'payment_method_journal_id':
@@ -680,9 +714,21 @@ class PaymentInvoiceAPI(http.Controller):
                             'is_integrated': pay.is_integrated
                         }
                     else:
+                        # Jumlahkan amount (termasuk yang negatif untuk kembalian)
                         payment_groups[method_id]['amount'] += pay.amount
                         if pay.is_integrated:
                             payment_groups[method_id]['is_integrated'] = True
+
+                # Filter out payment methods dengan amount neto = 0 atau negatif
+                # (misalnya jika hanya ada kembalian tanpa pembayaran)
+                valid_payment_groups = {
+                    k: v for k, v in payment_groups.items() 
+                    if v['amount'] > 0
+                }
+
+                # Skip order jika tidak ada valid payments setelah dikurangi kembalian
+                if not valid_payment_groups:
+                    continue
 
                 # =================================================
                 # FINAL RESPONSE STRUCTURE
@@ -699,6 +745,7 @@ class PaymentInvoiceAPI(http.Controller):
                     'customer_id': order.partner_id.id,
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code,
+                    'order_reference': order_reference,
                     'item': display_item['name']
                         if display_item else '',
                     'item_code': display_item['code']
@@ -707,7 +754,7 @@ class PaymentInvoiceAPI(http.Controller):
                         if display_item else False,
                     'company_id': order.company_id.id,
                     'company_name': order.company_id.name,
-                    'payments': list(payment_groups.values())
+                    'payments': list(valid_payment_groups.values())
                 })
 
             total_records = len(result)
@@ -1662,6 +1709,9 @@ class MasterProductItemAPI(http.Controller):
                     'vit_item_type': product.vit_item_type,
                     'vit_item_brand': product.brand,
                     'brand': product.brand,
+                    'gm_sub_category': product.get('gm_sub_category'),
+                    'gm_class': product.get('gm_class'),
+                    'gm_manufacturer': product.get('gm_manufacturer'),
                     'company_id': product.company_id.id,
                     'company_name': product.company_id.name
                 }

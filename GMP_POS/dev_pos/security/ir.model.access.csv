@@ -7,8 +7,6 @@ access_manual_sync_mc_to_ss,access_manual.sync.mc.to.ss,model_manual_sync_mc_to_
 access_manual_sync_ss_to_mc,access_manual.sync.ss.to.mc,model_manual_sync_ss_to_mc,base.group_user,1,1,1,1
 access_token_generate,access_token.generate,model_token_generate,base.group_user,1,1,1,1
 access_list_license,access_list_license,model_list_license,base.group_user,1,1,1,1
-access_inventory_counting,access_inventory.counting,model_inventory_counting,base.group_user,1,1,1,1
-access_inventory_stock,access_inventory.stock,model_inventory_stock,base.group_user,1,1,1,1
 access_barcode_config,access_barcode.config,model_barcode_config,base.group_user,1,1,1,1
 access_print_barcode,access_print.barcode,model_print_barcode,stock.group_stock_user,1,1,1,1
 access_print_barcode_product_line,access_print.barcode.product.line,model_print_barcode_product_line,stock.group_stock_user,1,1,1,1

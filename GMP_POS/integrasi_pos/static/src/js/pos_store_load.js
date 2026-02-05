@@ -17,8 +17,45 @@ patch(PosStore.prototype, {
                 console.log("✅ POS Config injected:", {
                     manager_validation: configSettings.manager_validation,
                     validate_discount: configSettings.validate_discount,
-                    validate_payment: configSettings.validate_payment
+                    validate_payment: configSettings.validate_payment,
+                    // ✅ ROUNDING CONFIG
+                    enable_auto_rounding: configSettings.enable_auto_rounding,
+                    rounding_value: configSettings.rounding_value,
+                    rounding_product_id: configSettings.rounding_product_id,
                 });
+                
+                // ✅ VALIDATE ROUNDING CONFIGURATION
+                if (configSettings.enable_auto_rounding) {
+                    console.group("🔄 AUTO ROUNDING CONFIGURATION");
+                    console.log("✅ Auto Rounding: ENABLED");
+                    console.log(`💯 Rounding Value: ${configSettings.rounding_value}`);
+                    
+                    if (configSettings.rounding_product_id) {
+                        console.log(`📦 Rounding Product: ${configSettings.rounding_product_id.name} (ID: ${configSettings.rounding_product_id.id})`);
+                        
+                        // Validate product exists in database
+                        const roundingProduct = this.db.get_product_by_id(configSettings.rounding_product_id.id);
+                        if (roundingProduct) {
+                            console.log(`✅ Rounding product found in POS database`);
+                            console.log(`   Name: ${roundingProduct.display_name}`);
+                            console.log(`   Available in POS: ${roundingProduct.available_in_pos}`);
+                        } else {
+                            console.error(`❌ CRITICAL: Rounding product NOT found in POS database!`);
+                            console.error(`   Product ID ${configSettings.rounding_product_id.id} is not loaded`);
+                            console.error(`   Auto rounding will NOT work!`);
+                            console.error(`   Please check:`);
+                            console.error(`   1. Product exists in database`);
+                            console.error(`   2. Product 'available_in_pos' is TRUE`);
+                            console.error(`   3. Product is not archived`);
+                        }
+                    } else {
+                        console.error(`❌ CRITICAL: Rounding product NOT configured!`);
+                        console.error(`   Please set rounding product in POS Configuration > Auto Rounding`);
+                    }
+                    console.groupEnd();
+                } else {
+                    console.log("ℹ️ Auto Rounding: DISABLED");
+                }
             } else {
                 console.warn("⚠️ No config settings loaded");
             }
@@ -306,6 +343,10 @@ patch(PosStore.prototype, {
                 multipleBarcodes: this.multiple_barcodes.length,
                 cashierLogs: this.cashier_logs.length,
                 paymentMethods: this.payment_methods ? this.payment_methods.length : 0,
+                // ✅ ROUNDING CONFIG SUMMARY
+                autoRounding: this.config.enable_auto_rounding || false,
+                roundingValue: this.config.rounding_value || 0,
+                roundingProduct: this.config.rounding_product_id ? this.config.rounding_product_id.name : 'Not set',
             });
 
         } catch (error) {
@@ -313,6 +354,44 @@ patch(PosStore.prototype, {
             console.error("❌ Error stack:", error.stack);
             // Don't throw - allow POS to continue loading with partial data
         }
+    },
+
+    /**
+     * ✅ Helper method to get rounding configuration
+     */
+    getRoundingConfig() {
+        return {
+            enabled: this.config.enable_auto_rounding || false,
+            value: this.config.rounding_value || 100,
+            product_id: this.config.rounding_product_id?.id || null,
+            product_name: this.config.rounding_product_id?.name || null,
+        };
+    },
+
+    /**
+     * ✅ Helper method to validate rounding configuration
+     */
+    isRoundingConfigured() {
+        const config = this.getRoundingConfig();
+        
+        if (!config.enabled) {
+            return { valid: false, reason: 'Auto rounding is disabled' };
+        }
+        
+        if (!config.product_id) {
+            return { valid: false, reason: 'Rounding product not configured' };
+        }
+        
+        const product = this.db.get_product_by_id(config.product_id);
+        if (!product) {
+            return { valid: false, reason: 'Rounding product not found in POS database' };
+        }
+        
+        if (!product.available_in_pos) {
+            return { valid: false, reason: 'Rounding product not available in POS' };
+        }
+        
+        return { valid: true, config: config };
     },
 
     /**

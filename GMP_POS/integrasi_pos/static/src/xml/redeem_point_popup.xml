@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<!-- <?xml version="1.0" encoding="UTF-8"?>
 <templates id="template" xml:space="preserve">
     <t t-name="integrasi_pos.RedeemPointPopUp" owl="1">
         <div class="popup popup-number custom-numpad-popup redeem-point-popup">
@@ -88,4 +88,4 @@
             <span t-esc="label"/>
         </div>
     </t>
-</templates>
+</templates> -->

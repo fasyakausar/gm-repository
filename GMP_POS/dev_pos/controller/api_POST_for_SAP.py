@@ -719,6 +719,9 @@ class POSTMasterItem(http.Controller):
                                 'vit_item_kel': data_item.get('vit_item_kel'),
                                 'vit_item_type': data_item.get('vit_item_type'),
                                 'brand': data_item.get('vit_item_brand'),
+                                'gm_sub_category': data_item.get('gm_sub_category'),
+                                'gm_class': data_item.get('gm_class'),
+                                'gm_manufacturer': data_item.get('gm_manufacturer'),
                                 'company_id': company.id,
                             }
 

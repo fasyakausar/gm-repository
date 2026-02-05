@@ -98,7 +98,7 @@ class PrintBarcode(models.Model):
     end_date = fields.Datetime(string="Date To", default=lambda self: fields.Date.today())
     
     #Document Inventory
-    doc_type = fields.Selection([('receipt', 'GRPO'), ('good_receipts', 'Good Receipts'), ('ts_out', 'TS Out'), ('ts_in', 'TS In')], string="Tipe Dokumen")
+    doc_type = fields.Selection([('receipt', 'GRPO'), ('good_receipts', 'Good Receipts'), ('ts_out', 'TSOUT'), ('ts_in', 'TSIN')], string="Tipe Dokumen")
 
     # For storing the generated PDF
     barcode_pdf = fields.Binary(string="Generated Barcode PDF", attachment=True)
@@ -225,8 +225,8 @@ class PrintBarcode(models.Model):
         doc_type_mapping = {
             'receipt': 'GRPO',
             'good_receipts': 'Goods Receipts',
-            'ts_out': 'TS Out',
-            'ts_in': 'TS In',
+            'ts_out': 'TSOUT',
+            'ts_in': 'TSIN',
         }
 
         picking_type_name = doc_type_mapping.get(self.doc_type)
