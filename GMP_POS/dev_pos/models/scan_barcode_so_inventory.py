@@ -45,20 +45,49 @@ class SaleOrder(models.Model):
         next_seq = self._get_next_sequence()
         
         if existing_line:
-            # ✅ Update existing line: tambah qty dan update sequence
-            existing_line[0].write({
-                'product_uom_qty': existing_line[0].product_uom_qty + 1.0,
-                'sequence': next_seq,
-            })
+            # ✅ Update existing line: tambah qty dan update sequence agar muncul di atas
+            new_commands = []
+            
+            for line in self.order_line:
+                if line.id == existing_line[0].id or (not line.id and line == existing_line[0]):
+                    # Update existing line dengan qty baru dan sequence tertinggi
+                    if line.id:
+                        new_commands.append((1, line.id, {
+                            'product_uom_qty': line.product_uom_qty + 1.0,
+                            'sequence': next_seq,
+                        }))
+                    else:
+                        # Untuk new record (belum disave)
+                        line.product_uom_qty += 1.0
+                        line.sequence = next_seq
+                        new_commands.append((4, line.id, 0))
+                else:
+                    # Keep other lines
+                    if line.id:
+                        new_commands.append((4, line.id, 0))
+                    else:
+                        new_commands.append((4, line.id, 0))
+            
+            if new_commands:
+                self.order_line = new_commands
         else:
-            # ✅ Buat line baru menggunakan Command
-            self.order_line = [(0, 0, {
+            # ✅ Buat line baru di posisi paling atas
+            new_commands = [(0, 0, {
                 'product_id': product.id,
                 'product_uom_qty': 1.0,
                 'product_uom': product.uom_id.id,
                 'price_unit': product.list_price,
                 'sequence': next_seq,
             })]
+            
+            # Tambahkan semua existing lines
+            for line in self.order_line:
+                if line.id:
+                    new_commands.append((4, line.id, 0))
+                else:
+                    new_commands.append((4, line.id, 0))
+            
+            self.order_line = new_commands
         
         # Reset input
         self.barcode_input = ''
@@ -111,14 +140,34 @@ class StockPicking(models.Model):
         next_seq = self._get_next_sequence()
         
         if existing_move:
-            # ✅ Update existing move: tambah qty dan update sequence
-            existing_move[0].write({
-                'product_uom_qty': existing_move[0].product_uom_qty + 1.0,
-                'sequence': next_seq,
-            })
+            # ✅ Update existing move: tambah qty dan update sequence agar muncul di atas
+            new_commands = []
+            
+            for move in self.move_ids_without_package:
+                if move.id == existing_move[0].id or (not move.id and move == existing_move[0]):
+                    # Update existing move dengan qty baru dan sequence tertinggi
+                    if move.id:
+                        new_commands.append((1, move.id, {
+                            'product_uom_qty': move.product_uom_qty + 1.0,
+                            'sequence': next_seq,
+                        }))
+                    else:
+                        # Untuk new record (belum disave)
+                        move.product_uom_qty += 1.0
+                        move.sequence = next_seq
+                        new_commands.append((4, move.id, 0))
+                else:
+                    # Keep other moves
+                    if move.id:
+                        new_commands.append((4, move.id, 0))
+                    else:
+                        new_commands.append((4, move.id, 0))
+            
+            if new_commands:
+                self.move_ids_without_package = new_commands
         else:
-            # ✅ Buat move baru menggunakan Command
-            self.move_ids_without_package = [(0, 0, {
+            # ✅ Buat move baru di posisi paling atas
+            new_commands = [(0, 0, {
                 'name': product.name,
                 'product_id': product.id,
                 'product_uom_qty': 1.0,
@@ -128,6 +177,15 @@ class StockPicking(models.Model):
                 'picking_id': self.id,
                 'sequence': next_seq,
             })]
+            
+            # Tambahkan semua existing moves
+            for move in self.move_ids_without_package:
+                if move.id:
+                    new_commands.append((4, move.id, 0))
+                else:
+                    new_commands.append((4, move.id, 0))
+            
+            self.move_ids_without_package = new_commands
         
         # Reset input
         self.barcode_input = ''

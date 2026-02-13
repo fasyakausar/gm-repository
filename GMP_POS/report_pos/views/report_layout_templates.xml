@@ -17,7 +17,7 @@
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
-              <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+              <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
               <h5 class="text-center">Laporan Penjualan</h5>
               <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -175,7 +175,7 @@
       </style>
 
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+        <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -238,7 +238,7 @@
   <!-- <template id="report_sales_hourly" name="Report Sales Hourly">
     <t t-call="web.html_container">
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+        <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -284,7 +284,7 @@
   <template id="report_sales_hourly_category" name="Report Sales Hourly Category">
     <t t-call="web.html_container">
       <div class="container mt-4">
-        <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+        <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
         <h5 class="text-center">Laporan History Penjualan By Store</h5>
         <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
@@ -326,7 +326,7 @@
   </template> -->
 
   <template id="report_sales_settlement_end_of_shift" name="Report Sales Settlement End of Shift">
-    <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+    <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
     <t t-set="o_portal_fullwidth_alert">
       <t t-call="report_pos.portal_back_in_edit_mode"/>
     </t>
@@ -336,7 +336,7 @@
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
-              <h4 class="text-center"><b>PT Global Multi Parts</b></h4>
+              <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
               <h5 class="text-center">Laporan Penjualan</h5>
               <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 
