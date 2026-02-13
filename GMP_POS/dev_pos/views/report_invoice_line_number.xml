@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Inherit report_invoice_document to add line number column -->
+        <template id="report_invoice_document_line_number" inherit_id="account.report_invoice_document">
+
+            <!-- Add "No" header column before Description -->
+            <xpath expr="//th[@name='th_description']" position="before">
+                <th name="th_no" class="text-center" style="width: 40px;">
+                    <span>No</span>
+                </th>
+            </xpath>
+
+            <!-- Add line number cell for product lines -->
+            <xpath expr="//td[@name='account_invoice_line_name']" position="before">
+                <td name="td_no" class="text-center">
+                    <span t-esc="line_index + 1"/>
+                </td>
+            </xpath>
+
+            <!-- Add empty cell for section lines (colspan already covers all, just shift) -->
+            <!-- Section and note lines use colspan=99 so no extra td needed -->
+
+        </template>
+    </data>
+</odoo>

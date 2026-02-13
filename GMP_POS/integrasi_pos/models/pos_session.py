@@ -740,6 +740,10 @@ class PosSession(models.Model):
         if 'gm_is_rounding' not in result['search_params']['fields']:
             result['search_params']['fields'].append('gm_is_rounding')
             _logger.info("✅ Added gm_is_rounding to product.product loader")
+
+        if 'gm_is_dp' not in result['search_params']['fields']:
+            result['search_params']['fields'].append('gm_is_dp')
+            _logger.info("✅ Added gm_is_dp to product.product loader")
         
         _logger.info(f"📦 Product loader fields: {result['search_params']['fields']}")
         

@@ -39,13 +39,6 @@
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
         
-        <!-- Disable add/delete untuk move lines ketika state ready/done -->
-        <field name="move_ids_without_package" position="attributes">
-            <attribute name="readonly">state in ['assigned', 'done']</attribute>
-            <attribute name="create">state not in ['assigned', 'done']</attribute>
-            <attribute name="delete">state not in ['assigned', 'done']</attribute>
-        </field>
-        
         <xpath expr="//field[@name='is_integrated']" position="attributes">
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
@@ -57,6 +50,31 @@
         <xpath expr="//field[@name='is_closed']" position="attributes">
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
+        </xpath>
+      </field>
+    </record>
+
+    <!-- tree view -->
+    <record model="ir.ui.view" id="view_stock_picking_tree">
+      <field name="name">stock.picking.tree</field>
+      <field name="model">stock.picking</field>
+      <field name="inherit_id" ref="stock.vpicktree"/>
+      <field name="arch" type="xml">
+        <xpath expr="//field[@name='origin']" position="after">
+          <field name="vit_trxid"/>
+          <field name="is_integrated"/>
+        </xpath>
+      </field>
+    </record>
+
+    <!-- search view -->
+    <record model="ir.ui.view" id="view_stock_picking_search">
+      <field name="name">stock.picking.search</field>
+      <field name="model">stock.picking</field>
+      <field name="inherit_id" ref="stock.view_picking_internal_search"/>
+      <field name="arch" type="xml">
+        <xpath expr="//field[@name='origin']" position="after">
+          <field name="vit_trxid"/>
         </xpath>
       </field>
     </record>

@@ -3,9 +3,18 @@
     <record id="view_order_form_barcode_inherit" model="ir.ui.view">
         <field name="name">sale.order.form.barcode</field>
         <field name="model">sale.order</field>
-        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="inherit_id" ref="sale_stock.view_order_form_inherit_sale_stock"/>
         <field name="arch" type="xml">
-            <!-- Tambahkan barcode input setelah pricelist_id -->
+            <!-- Hapus warehouse_id dari posisi aslinya -->
+            <xpath expr="//field[@name='warehouse_id']" position="replace"/>
+            
+            <!-- Pindahkan warehouse_id setelah payment_term_id -->
+            <xpath expr="//field[@name='payment_term_id']" position="after">
+                <field name="warehouse_id" invisible="1" readonly="state == 'sale'"/>
+                <field name="warehouse_id" options="{'no_create': True}" groups="stock.group_stock_multi_warehouses" force_save="1" readonly="state == 'sale'"/>
+            </xpath>
+            
+            <!-- Tambahkan barcode input setelah warehouse_id -->
             <xpath expr="//field[@name='payment_term_id']" position="after">
                 <field name="barcode_input" 
                        placeholder="Scan barcode here..." 

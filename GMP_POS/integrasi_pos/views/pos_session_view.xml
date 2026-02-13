@@ -21,26 +21,8 @@
       <field name="inherit_id" ref="point_of_sale.view_pos_session_form"/>
       <field name="arch" type="xml">
         <xpath expr="//field[@name='config_id']" position="after">
-            <field name="is_updated"/>
-            <field name="name_session_pos"/>
-            <field name="id_mc"/>
             <field name="vit_edit_start_balance" invisible="state == 'opened'"/>
             <field name="vit_edit_end_balance" invisible="state == 'opened'"/>
-        </xpath>
-        <xpath expr="//field[@name='is_updated']" position="attributes">
-          <attribute name="force_save">1</attribute>
-          <attribute name="readonly">True</attribute>
-        </xpath>
-        <xpath expr="//field[@name='id_mc']" position="attributes">
-          <attribute name="force_save">1</attribute>
-          <attribute name="readonly">True</attribute>
-        </xpath>
-        <xpath expr="//field[@name='name_session_pos']" position="attributes">
-          <attribute name="force_save">1</attribute>
-          <attribute name="readonly">True</attribute>
-        </xpath>
-        <xpath expr="//button[@name='show_journal_items']" position="attributes">
-          <attribute name="invisible">0</attribute>
         </xpath>
       </field>
     </record>

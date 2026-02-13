@@ -4578,3 +4578,183 @@ class TsInAPI(http.Controller):
 
         except Exception as e:
             return serialize_error_response(str(e))
+
+class GoodsReturnAPI(http.Controller):
+    @http.route(['/api/goods_return/'], type='http', auth='public', methods=['GET'], csrf=False)
+    def get_goods_return(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+        try:
+            check_authorization()
+
+            if int(page) == 0:
+                return serialize_response([], 0, 0)
+
+            date_format = '%Y-%m-%d'
+            domain = [
+                ('picking_type_id.name', '=', 'Goods Return'),
+                ('state', '=', 'done')
+            ]
+
+            if q:
+                domain += [('name', 'ilike', str(q))]
+
+            if company_id is not None:
+                try:
+                    company_id_int = int(company_id)
+                    domain.append(('company_id', '=', company_id_int))
+                except ValueError:
+                    return serialize_response([], 0, 0)
+
+            if not createdDateFrom and not createdDateTo and not q and is_integrated is None:
+                goods_return = request.env['stock.picking'].sudo().search(domain)
+                total_records = len(goods_return)
+            else:
+                if createdDateFrom or createdDateTo:
+                    created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
+                    created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
+
+                    domain += [
+                        ('create_date', '>=', created_date_from.strftime(date_format)),
+                        ('create_date', '<=', created_date_to.strftime(date_format))
+                    ]
+
+                if is_integrated is not None:
+                    is_integrated_bool = str(is_integrated).lower() == 'true'
+                    domain += [('is_integrated', '=', is_integrated_bool)]
+
+                pageSize = int(pageSize) if pageSize else 200
+
+            if not q:
+                goods_return, total_records = paginate_records('stock.picking', domain, pageSize, page)
+            else:
+                goods_return = request.env['stock.picking'].sudo().search(domain)
+                total_records = len(goods_return)
+
+            data_goods_return = []
+            jakarta_tz = pytz.timezone('Asia/Jakarta')
+            for order in goods_return:
+                create_date_utc = order.create_date
+                create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
+                order_data = {
+                    'id': order.id,
+                    'doc_num': order.name,
+                    'transaction_id': order.vit_trxid,
+                    'source_document': order.origin,
+                    'return_id': order.return_id.id if order.return_id else "",
+                    'return_doc_num': order.return_id.name if order.return_id else "",
+                    'customer_id': order.partner_id.id or "",
+                    'customer_name': order.partner_id.name or "",
+                    'location_id': order.location_id.id,
+                    'location_name': order.location_id.complete_name,
+                    'location_dest_id': order.location_dest_id.id,
+                    'location_dest': order.location_dest_id.complete_name,
+                    'is_integrated': order.is_integrated,
+                    'picking_type_id': order.picking_type_id.id,
+                    'picking_type': order.picking_type_id.name,
+                    'gm_type_transfer': order.gm_type_transfer,
+                    'create_date': str(create_date_jakarta),
+                    'scheduled_date': str(order.scheduled_date),
+                    'date_done': str(order.date_done),
+                    'state': order.state,
+                    'company_id': order.company_id.id,
+                    'company_name': order.company_id.name,
+                }
+                data_goods_return.append(order_data)
+
+            if not createdDateFrom and not createdDateTo and not q and is_integrated is None:
+                total_records = len(data_goods_return)
+
+            total_pages = (total_records + pageSize - 1) // pageSize
+
+            return serialize_response(data_goods_return, total_records, total_pages)
+
+        except ValidationError as ve:
+            error_response = {
+                'error': 'One or more required parameters are missing.',
+                'status': 500
+            }
+            return http.Response(json.dumps(error_response), content_type='application/json', status=500)
+
+        except Exception as e:
+            return serialize_error_response(str(e))
+
+    @http.route(['/api/goods_return_line/<int:order_id>'], type='http', auth='public', methods=['GET'], csrf=False)
+    def get_goods_return_lines(self, order_id, **params):
+        try:
+            check_authorization()
+
+            goods_return = request.env['stock.picking'].sudo().browse(order_id)
+            if not goods_return:
+                raise werkzeug.exceptions.NotFound(_("Goods Return not found"))
+
+            if goods_return.picking_type_id.name != 'Goods Return':
+                raise werkzeug.exceptions.NotFound(_("Transfer Is Not Goods Return Operation Type"))
+
+            goods_return_lines = goods_return.move_ids_without_package
+            doc_num = goods_return.name
+            transaction_id = goods_return.vit_trxid
+            customer_name = goods_return.partner_id.name
+            customer_id = goods_return.partner_id.id
+            location_id = goods_return.location_id.id
+            location = goods_return.location_id.complete_name
+            location_dest_id = goods_return.location_dest_id.id
+            location_dest = goods_return.location_dest_id.complete_name
+            picking_type_id = goods_return.picking_type_id.id
+            picking_type = goods_return.picking_type_id.name
+            scheduled_date = str(goods_return.scheduled_date)
+
+            jakarta_tz = pytz.timezone('Asia/Jakarta')
+            create_date_utc = goods_return.create_date
+            create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
+            created_date = str(create_date_jakarta)
+            date_done = str(goods_return.date_done)
+
+            data_goods_return_lines = []
+            for line_number, line in enumerate(goods_return_lines, start=1):
+                line_data = {
+                    'line_number': line_number,
+                    'id': line.id,
+                    'doc_no': doc_num,
+                    'location_id': line.location_id.id,
+                    'location': line.location_id.complete_name,
+                    'location_dest_id': line.location_dest_id.id,
+                    'location_dest': line.location_dest_id.complete_name,
+                    'product_id': line.product_id.id,
+                    'product_code': line.product_id.default_code or "",
+                    'product_name': line.product_id.name,
+                    'demand_qty': line.product_uom_qty,
+                    'quantity': line.quantity,
+                    'product_uom': line.product_uom.name,
+                    'origin_move_id': line.origin_returned_move_id.id if line.origin_returned_move_id else "",
+                    'origin_doc_num': line.origin_returned_move_id.picking_id.name if line.origin_returned_move_id else "",
+                }
+                data_goods_return_lines.append(line_data)
+
+            response_data = {
+                'status': 200,
+                'message': 'success',
+                'doc_num': doc_num,
+                'transaction_id': transaction_id,
+                'customer_id': customer_id or "",
+                'customer_name': customer_name or "",
+                'location_id': location_id,
+                'location': location,
+                'location_dest_id': location_dest_id,
+                'location_dest': location_dest,
+                'picking_type_id': picking_type_id,
+                'picking_type': picking_type,
+                'gm_type_transfer': goods_return.gm_type_transfer,
+                'return_id': goods_return.return_id.id if goods_return.return_id else "",
+                'return_doc_num': goods_return.return_id.name if goods_return.return_id else "",
+                'created_date': created_date,
+                'scheduled_date': scheduled_date,
+                'date_done': date_done,
+                'items': data_goods_return_lines,
+            }
+            return werkzeug.wrappers.Response(
+                status=200,
+                content_type='application/json; charset=utf-8',
+                response=json.dumps(response_data)
+            )
+
+        except Exception as e:
+            return serialize_error_response(str(e))

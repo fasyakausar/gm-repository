@@ -2,25 +2,46 @@
 <templates id="template" xml:space="preserve">
     <t t-name="point_of_sale.ClosePosPopup" t-inherit="point_of_sale.ClosePosPopup" t-inherit-mode="extension">
 
-        <!-- ✅ HILANGKAN SELURUH SECTION CASH OVERVIEW -->
-        <!-- Ini akan menghilangkan: Opening, Cash in/out, Payments, Cash difference, dll -->
-        <xpath expr="//tbody[@class='cash-overview border-start small text-muted']" position="replace">
-            <!-- Tidak ada konten - semua cash moves disembunyikan -->
-        </xpath>
+        <!-- 1. Hilangkan seluruh section Opening / Cash moves / Payments in Cash -->
+        <xpath expr="//tbody[@class='cash-overview border-start small text-muted']" position="replace"/>
 
-        <!-- ✅ TAMBAHKAN KOLOM EXPECTED -->
+        <!-- 2. Tambah kolom Expected di header setelah Payment Method -->
         <xpath expr="//thead/tr[@class='text-dark']/th[1]" position="after">
             <th>Expected</th>
         </xpath>
 
-        <!-- ✅ TAMBAHKAN EXPECTED VALUE UNTUK CASH ROW -->
+        <!-- 3. Expected value untuk baris CASH -->
         <xpath expr="//tbody/tr[td[@t-esc='props.default_cash_details.name']]/td[1]" position="after">
-            <td t-esc="env.utils.formatCurrency(state.payments[props.default_cash_details.id]?.expected || 0.0)"/>
+            <td t-esc="env.utils.formatCurrency(props.default_cash_details.amount)"/>
         </xpath>
 
-        <!-- ✅ TAMBAHKAN EXPECTED VALUE UNTUK BANK ROWS -->
+        <!-- 4. Replace Input CASH + tombol money → input native
+             Selector langsung ke komponen Input (tidak bergantung posisi td setelah replace #1) -->
+        <xpath expr="//Input[@callback.bind]" position="replace">
+            <input
+                class="form-control text-end"
+                type="text"
+                t-att-value="state.payments[props.default_cash_details.id].counted"
+                t-att-data-pm-id="props.default_cash_details.id"
+                t-on-input="(ev) => { state.payments[props.default_cash_details.id].counted = ev.target.value; setManualCashInput(ev.target.value); }"
+            />
+        </xpath>
+
+        <!-- 5. Expected value untuk baris BANK -->
         <xpath expr="//tbody/tr[@t-foreach='props.other_payment_methods']/td[1]" position="after">
-            <td t-esc="env.utils.formatCurrency(state.payments[pm.id]?.expected || 0.0)"/>
+            <td t-if="_showDiff" t-esc="env.utils.formatCurrency(pm.amount)"/>
+            <td t-if="!_showDiff"/>
+        </xpath>
+
+        <!-- 6. Replace Input BANK → input native -->
+        <xpath expr="//td[@t-if='_showDiff']/Input[@tModel]" position="replace">
+            <input
+                class="form-control text-end"
+                type="text"
+                t-att-value="state.payments[pm.id].counted"
+                t-att-data-pm-id="pm.id"
+                t-on-input="(ev) => { state.payments[pm.id].counted = ev.target.value; }"
+            />
         </xpath>
 
     </t>

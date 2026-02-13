@@ -84,14 +84,45 @@ class PrintBarcode(models.Model):
     ukuran_font_kode = fields.Float(string="Ukuran Font Kode", default=6.0)
     ukuran_font_nama = fields.Float(string="Ukuran Font Nama", default=6.0)
     ukuran_font_harga = fields.Float(string="Ukuran Font Harga", default=8.0)
-    lebar_barcode_percent = fields.Float(string="Lebar Barcode (%)", default=80.0, help="Persentase lebar barcode dari lebar label (10-100%)")  # TAMBAHKAN INI
-    lebar_barcode = fields.Float(string="Lebar Barcode (mm)", default=24.0, help="Lebar barcode dalam milimeter")  # TAMBAHKAN INI
+    lebar_barcode_percent = fields.Float(string="Lebar Barcode (%)", default=80.0, help="Persentase lebar barcode dari lebar label (10-100%)")
+    lebar_barcode = fields.Float(string="Lebar Barcode (mm)", default=24.0, help="Lebar barcode dalam milimeter")
     posisi_barcode = fields.Float(string="Posisi Barcode", default=12.0)
     posisi_kode = fields.Float(string="Posisi Kode", default=3.0)
     tinggi_kode = fields.Float(string="Tinggi Kode", default=8.0)
     posisi_harga = fields.Float(string="Posisi Harga", default=20.0)
     posisi_nama_barang = fields.Float(string="Posisi Nama Barang", default=8.0)
     tinggi_nama_barnag = fields.Float(string="Tinggi Nama Barang", default=10.0)
+
+    # =====================================================================
+    # FITUR: Konfigurasi tampilkan harga atau tidak
+    # =====================================================================
+    show_price = fields.Boolean(
+        string="Tampilkan Harga",
+        default=True,
+        help="Centang untuk menampilkan harga jual pada label barcode"
+    )
+
+    maks_karakter_per_baris = fields.Integer(
+        string="Maks Karakter Per Baris",
+        default=15,
+        help="Jumlah maksimum karakter per baris untuk nama produk."
+    )
+
+    # =====================================================================
+    # FITUR BARU: Auto-scaling font nama produk
+    # =====================================================================
+    auto_scale_font_nama = fields.Boolean(
+        string="Auto Scale Font Nama",
+        default=True,
+        help="Otomatis memperkecil ukuran font nama produk agar muat dalam 1 baris (tidak wrap).\n"
+             "Jika diaktifkan, 'Ukuran Font Nama' menjadi ukuran MAKSIMUM.\n"
+             "Font akan diperkecil hingga nama muat dalam lebar label."
+    )
+    ukuran_font_nama_min = fields.Float(
+        string="Ukuran Font Nama Minimum",
+        default=4.0,
+        help="Ukuran font minimum saat auto-scale aktif. Font tidak akan diperkecil di bawah nilai ini."
+    )
 
     #Filter date
     start_date = fields.Datetime(string="Date From")
@@ -446,7 +477,73 @@ class PrintBarcode(models.Model):
                 drawing = Drawing(width, height)
                 drawing.add(String(width/2, height/2, f"Invalid: {barcode_value}", textAnchor='middle'))
                 return drawing
-            
+
+    # =====================================================================
+    # FITUR BARU: Auto-scale font nama produk agar muat 1 baris
+    # =====================================================================
+    def _get_scaled_font_size_for_name(self, canvas_obj, font_name, product_name, max_width_pts):
+        """
+        Hitung ukuran font yang tepat agar product_name muat dalam max_width_pts.
+        
+        - Mulai dari ukuran_font_nama (ukuran maksimum)
+        - Turunkan perlahan sampai teks muat atau mencapai ukuran minimum
+        - Return: font_size yang sesuai (float)
+        
+        Digunakan hanya saat auto_scale_font_nama = True
+        """
+        max_font_size = self.ukuran_font_nama or 6.0
+        min_font_size = self.ukuran_font_nama_min or 4.0
+        
+        # Pastikan max >= min
+        if max_font_size < min_font_size:
+            return min_font_size
+
+        current_size = max_font_size
+
+        while current_size >= min_font_size:
+            # Ukur lebar teks dengan ukuran font saat ini
+            canvas_obj.setFont(font_name, current_size)
+            text_width = canvas_obj.stringWidth(product_name, font_name, current_size)
+
+            if text_width <= max_width_pts:
+                return current_size
+
+            # Kurangi ukuran font 0.5pt per iterasi untuk presisi
+            current_size -= 0.5
+
+        # Jika masih tidak muat pada ukuran minimum, kembalikan ukuran minimum
+        return min_font_size
+
+    # =====================================================================
+    # HELPER: Render nama produk - 1 kolom dengan word-wrap
+    # =====================================================================
+    def _get_product_name_lines(self, name):
+        """
+        Mengembalikan list baris nama produk dengan word-wrap 1 kolom (centered).
+
+        CATATAN: Jika auto_scale_font_nama = True, fungsi ini tidak digunakan —
+        nama ditampilkan 1 baris dengan font yang di-scale otomatis.
+        """
+        max_chars = self.maks_karakter_per_baris or 15
+        return self._simple_word_wrap(name, max_chars)
+
+    def _simple_word_wrap(self, text, max_chars):
+        """Memecah teks menjadi list baris dengan batas max_chars per baris."""
+        words = text.split()
+        lines = []
+        current_line = ''
+        for word in words:
+            if not current_line:
+                current_line = word
+            elif len(current_line) + 1 + len(word) <= max_chars:
+                current_line += ' ' + word
+            else:
+                lines.append(current_line)
+                current_line = word
+        if current_line:
+            lines.append(current_line)
+        return lines if lines else ['']
+
     def action_preview_barcode(self):
         """Preview barcode PDF without sending to printer"""
         if not self.product_line_ids:
@@ -613,15 +710,22 @@ class PrintBarcode(models.Model):
 
         os.unlink(file_path)
 
-        filename = f"barcode_strips_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+        # =====================================================================
+        # FITUR BARU: Pertahankan filename yang sudah ada, hanya buat baru
+        # jika belum ada (record baru / belum pernah di-generate)
+        # =====================================================================
+        existing_filename = self.barcode_filename
+        if not existing_filename:
+            existing_filename = f"barcode_strips_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+
         self.write({
             'barcode_pdf': base64.b64encode(pdf_data),
-            'barcode_filename': filename
+            'barcode_filename': existing_filename,  # Pertahankan filename lama
         })
 
         return {
             'type': 'ir.actions.act_url',
-            'url': f'/web/content/?model=print.barcode&id={self.id}&field=barcode_pdf&filename={filename}',
+            'url': f'/web/content/?model=print.barcode&id={self.id}&field=barcode_pdf&filename={existing_filename}',
             'target': 'new',
         }
     
@@ -651,7 +755,13 @@ class PrintBarcode(models.Model):
         return font_name
         
     def _draw_single_label(self, canvas_obj, product, x_pos, y_pos, font_name):
-        """Draw a single label at specified position"""
+        """
+        Draw a single label at specified position.
+
+        Mendukung:
+        - show_price         : menampilkan atau menyembunyikan harga
+        - auto_scale_font_nama: font nama produk otomatis di-scale agar muat 1 baris
+        """
         # Get product line for pricing info
         product_line = self.env['print.barcode.product.line'].search([
             ('barcode_id', '=', self.id),
@@ -663,14 +773,41 @@ class PrintBarcode(models.Model):
         
         # Calculate center positions
         center_x = x_pos + (label_width / 2)
-        
-        # Draw Product Name (top)
-        canvas_obj.setFont(font_name, self.ukuran_font_nama)
-        product_name = product.name[:20] + ("..." if len(product.name) > 20 else "")
-        name_y = y_pos + label_height - (self.posisi_nama_barang * mm)
-        canvas_obj.drawCentredString(center_x, name_y, product_name)
-        
-        # Draw Barcode (center)
+
+        # =====================================================================
+        # NAMA PRODUK
+        # Mode auto-scale: 1 baris, font dikecilkan agar muat lebar label
+        # Mode normal    : word-wrap 1 kolom centered, sesuai maks_karakter_per_baris
+        # =====================================================================
+        if self.auto_scale_font_nama:
+            # --- MODE AUTO-SCALE: 1 baris, font menyesuaikan lebar label ---
+            # Sisakan padding kiri-kanan (2mm per sisi)
+            padding_pts = 2 * mm
+            max_text_width = label_width - (padding_pts * 2)
+
+            scaled_font_size = self._get_scaled_font_size_for_name(
+                canvas_obj, font_name, product.name, max_text_width
+            )
+
+            canvas_obj.setFont(font_name, scaled_font_size)
+            name_y = y_pos + label_height - (self.posisi_nama_barang * mm)
+            canvas_obj.drawCentredString(center_x, name_y, product.name)
+
+        else:
+            # --- MODE NORMAL: word-wrap 1 kolom, font tetap ukuran_font_nama ---
+            canvas_obj.setFont(font_name, self.ukuran_font_nama)
+            name_lines = self._get_product_name_lines(product.name)
+            line_height = (self.ukuran_font_nama + 1) * 0.352778 * mm
+
+            for i, line_text in enumerate(name_lines):
+                line_y = (y_pos + label_height
+                          - (self.posisi_nama_barang * mm)
+                          - (i * line_height))
+                canvas_obj.drawCentredString(center_x, line_y, line_text)
+
+        # =====================================================================
+        # BARCODE (center)
+        # =====================================================================
         if product.barcode:
             # Use configured barcode width (in mm)
             barcode_width = self.lebar_barcode * mm
@@ -687,13 +824,15 @@ class PrintBarcode(models.Model):
             barcode_y = y_pos + (self.posisi_barcode * mm)
             barcode.drawOn(canvas_obj, barcode_x, barcode_y)
             
-            # ✅ PERBAIKAN: Draw Barcode Number - posisi INDEPENDEN dari bawah label
+            # Draw Barcode Number - posisi INDEPENDEN dari bawah label
             canvas_obj.setFont(font_name, self.ukuran_font_kode)
-            code_y = y_pos + (self.posisi_kode * mm)  # UBAH INI - langsung dari bawah
+            code_y = y_pos + (self.posisi_kode * mm)
             canvas_obj.drawCentredString(center_x, code_y, product.barcode)
-        
-        # Draw Price (bottom)
-        if product_line and product_line.harga_jual:
+
+        # =====================================================================
+        # HARGA - hanya ditampilkan jika show_price = True
+        # =====================================================================
+        if self.show_price and product_line and product_line.harga_jual:
             canvas_obj.setFont(font_name, self.ukuran_font_harga)
             price_text = f"Rp {product_line.harga_jual:,.0f}"
             price_y = y_pos + (self.posisi_harga * mm * 0.3)

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!--
+            Paper Format: A5 Continuous
+            A5 = 148mm x 210mm
+            Continuous = page_height = 0 (auto-height / no page break)
+        -->
+        <record id="paperformat_a5_continuous" model="report.paperformat">
+            <field name="name">A5 Continuous</field>
+            <field name="default" eval="False"/>
+            <field name="format">custom</field>
+            <field name="page_height">0</field>      <!-- 0 = continuous / auto height -->
+            <field name="page_width">148</field>     <!-- A5 width in mm -->
+            <field name="orientation">Portrait</field>
+            <field name="margin_top">10</field>
+            <field name="margin_bottom">5</field>
+            <field name="margin_left">5</field>
+            <field name="margin_right">5</field>
+            <field name="header_line" eval="False"/>
+            <field name="header_spacing">5</field>
+            <field name="dpi">90</field>
+        </record>
+    </data>
+</odoo>

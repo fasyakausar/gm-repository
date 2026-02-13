@@ -4,21 +4,12 @@ import { patch } from "@web/core/utils/patch";
 
 patch(PosStore.prototype, {
     async openCashControl() {
-        // Skip popup dan langsung set opening cash ke 0
+        // Reset opening cash ke 0 sebelum popup muncul
         if (this.pos_session.state === 'opening_control') {
-            this.pos_session.state = "opened";
-            
-            // Gunakan this.orm bukan this.data
-            await this.orm.call("pos.session", "set_cashbox_pos", [
-                this.pos_session.id,
-                0, // Opening cash = 0
-                "", // Notes kosong
-            ]);
-            
-            return;
+            this.pos_session.cash_register_balance_start = 0;
         }
-        
-        // Untuk closing, tetap panggil method asli
+
+        // Tetap panggil method asli agar popup tetap muncul normal
         return super.openCashControl(...arguments);
     },
 });

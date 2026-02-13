@@ -1,0 +1,21 @@
+<!-- <?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data>
+        <!-- Action Report: Invoice A5 Continuous -->
+        <record id="action_report_invoice_a5" model="ir.actions.report">
+            <field name="name">Invoice A5</field>
+            <field name="model">account.move</field>
+            <field name="report_type">qweb-pdf</field>
+            <field name="report_name">dev_pos.report_invoice_a5</field>
+            <field name="report_file">dev_pos.report_invoice_a5</field>
+            <field name="print_report_name">'Invoice A5 - ' + (object.name or '')</field>
+            <field name="paperformat_id" ref="dev_pos.paperformat_a5_continuous"/>
+            <field name="binding_model_id" ref="account.model_account_move"/>
+            <field name="binding_type">report</field>
+            <field name="groups_id" eval="[
+                (4, ref('account.group_account_invoice')),
+                (4, ref('account.group_account_readonly')),
+            ]"/>
+        </record>
+    </data>
+</odoo> -->
