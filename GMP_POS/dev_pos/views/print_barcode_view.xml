@@ -109,20 +109,78 @@
                                         <field name="available_fonts_barcode"/>
                                     </group>
                                     <group string="Font Sizes">
-                                        <field name="ukuran_font_nama"/>
                                         <field name="ukuran_font_barcode"/>
                                         <field name="lebar_barcode"/>
                                         <field name="ukuran_font_kode"/>
                                         <field name="ukuran_font_harga"/>
                                     </group>
                                 </group>
+
+                                <!-- ============================================================
+                                     FITUR: Konfigurasi Tampilkan Harga
+                                     ============================================================ -->
+                                <separator string="Konfigurasi Harga"/>
+                                <group>
+                                    <group string="Pengaturan Harga">
+                                        <field name="show_price" widget="boolean_toggle"/>
+                                        <field name="posisi_harga" invisible="not show_price"/>
+                                        <field name="ukuran_font_harga" invisible="not show_price"/>
+                                    </group>
+                                </group>
+                                <div class="alert alert-info" role="alert" invisible="show_price">
+                                    <strong>Info:</strong> Harga tidak akan ditampilkan pada label barcode.
+                                </div>
+                                <div class="alert alert-success" role="alert" invisible="not show_price">
+                                    <strong>Info:</strong> Harga jual akan ditampilkan di bagian bawah label.
+                                </div>
+
+                                <!-- ============================================================
+                                     FITUR BARU: Auto-Scale Font Nama Produk
+                                     ============================================================ -->
+                                <separator string="Konfigurasi Font Nama Produk"/>
+                                <group>
+                                    <group string="Auto-Scale Nama Produk">
+                                        <field name="auto_scale_font_nama" widget="boolean_toggle"/>
+                                        <!-- Odoo 17: gunakan label terpisah, bukan attrs untuk ganti string -->
+                                        <label for="ukuran_font_nama" string="Ukuran Font Nama Maks" invisible="not auto_scale_font_nama"/>
+                                        <label for="ukuran_font_nama" string="Ukuran Font Nama" invisible="auto_scale_font_nama"/>
+                                        <field name="ukuran_font_nama" nolabel="1"/>
+                                        <!-- Ukuran minimum hanya relevan jika auto-scale aktif -->
+                                        <field name="ukuran_font_nama_min" invisible="not auto_scale_font_nama"/>
+                                    </group>
+                                </group>
+                                <div class="alert alert-success" role="alert" invisible="not auto_scale_font_nama">
+                                    <strong>Auto Scale Aktif:</strong>
+                                    Nama produk ditampilkan <strong>1 baris</strong>.
+                                    Font otomatis diperkecil (maks: <field name="ukuran_font_nama" readonly="1" class="oe_inline"/>pt,
+                                    min: <field name="ukuran_font_nama_min" readonly="1" class="oe_inline"/>pt)
+                                    hingga teks muat selebar label.
+                                </div>
+                                <div class="alert alert-info" role="alert" invisible="auto_scale_font_nama">
+                                    <strong>Auto Scale Nonaktif:</strong>
+                                    Font nama produk tetap <field name="ukuran_font_nama" readonly="1" class="oe_inline"/>pt.
+                                    Nama panjang akan di-wrap ke baris berikutnya sesuai pengaturan layout di bawah.
+                                </div>
+
+                                <!-- ============================================================
+                                     Konfigurasi Word-Wrap Nama Produk (hanya relevan jika auto-scale OFF)
+                                     ============================================================ -->
+                                <separator string="Konfigurasi Word-Wrap Nama Produk (saat Auto-Scale Nonaktif)"/>
+                                <group invisible="auto_scale_font_nama">
+                                    <group string="Pengaturan Teks Nama">
+                                        <field name="maks_karakter_per_baris"/>
+                                    </group>
+                                </group>
+                                <div class="alert alert-info" role="alert" invisible="auto_scale_font_nama">
+                                    <strong>Word-Wrap 1 Kolom:</strong> Nama produk ditampilkan terpusat selebar label. Teks panjang otomatis dibungkus ke baris berikutnya sesuai batas karakter per baris.
+                                </div>
+
                                 <separator string="Position Settings (Advanced)"/>
                                 <group>
                                     <group string="Vertical Positions">
                                         <field name="posisi_nama_barang"/>
                                         <field name="posisi_barcode"/>
                                         <field name="posisi_kode"/>
-                                        <field name="posisi_harga"/>
                                     </group>
                                     <group string="Heights">
                                         <field name="tinggi_kode"/>
@@ -148,13 +206,21 @@
                                 </field>
                                 <div class="mt16">
                                     <div class="alert alert-info" role="alert">
-                                        <strong>Smart Layout:</strong> 
+                                        <strong>Smart Layout:</strong>
                                         <ul>
                                             <li><strong>Multi-copy products:</strong> Create horizontal strips with specified copies</li>
                                             <li><strong>Single-copy products:</strong> Merge with multi-copy products when space allows</li>
                                             <li><strong>All single-copy:</strong> Each product gets its own compact page</li>
                                         </ul>
                                         <strong>Max Labels Per Row:</strong> <span class="badge badge-primary"><field name="max_labels_per_row" readonly="1"/></span>
+                                        <br/>
+                                        <strong>Tampilkan Harga:</strong>
+                                        <field name="show_price" readonly="1" widget="boolean_toggle" class="d-inline-block ml4"/>
+                                        <span class="ml8">
+                                            <strong>Auto Scale Font Nama:</strong>
+                                            <field name="auto_scale_font_nama" readonly="1" widget="boolean_toggle" class="d-inline-block ml4"/>
+                                        </span>
+
                                     </div>
                                 </div>
                             </page>
@@ -174,6 +240,8 @@
                     <field name="printer_list"/>
                     <field name="size_kertas"/>
                     <field name="max_labels_per_row"/>
+                    <field name="show_price"/>
+                    <field name="auto_scale_font_nama"/>
                     <field name="barcode_filename"/>
                 </tree>
             </field>
@@ -188,10 +256,14 @@
                     <field name="pilihan"/>
                     <field name="size_kertas"/>
                     <field name="printer_list"/>
+                    <filter string="Tampilkan Harga" name="filter_show_price" domain="[('show_price', '=', True)]"/>
+                    <filter string="Tanpa Harga" name="filter_hide_price" domain="[('show_price', '=', False)]"/>
+                    <filter string="Auto Scale Font" name="filter_auto_scale" domain="[('auto_scale_font_nama', '=', True)]"/>
                     <group expand="0" string="Group By">
                         <filter string="Configuration Type" name="group_pilihan" context="{'group_by': 'pilihan'}"/>
                         <filter string="Paper Size" name="group_size_kertas" context="{'group_by': 'size_kertas'}"/>
                         <filter string="Printer" name="group_printer" context="{'group_by': 'printer_list'}"/>
+
                     </group>
                 </search>
             </field>
@@ -212,6 +284,9 @@
                     <br/>• User-configurable label dimensions and spacing
                     <br/>• Automatic space utilization for efficient printing
                     <br/>• Support for various paper sizes and label types
+                    <br/>• Konfigurasi tampilkan/sembunyikan harga pada label
+                    <br/>• Auto-scale font nama produk (1 baris, font menyesuaikan)
+                    <br/>• Word-wrap nama produk 1 kolom dengan batas karakter per baris
                 </p>
             </field>
         </record>

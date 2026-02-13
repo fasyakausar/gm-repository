@@ -55,4 +55,5 @@ from . import is_dp
 from . import qty_on_hand
 from . import rounding_pos
 from . import scan_barcode_so_inventory
+from . import stock_picking_return
 # from . import res_users

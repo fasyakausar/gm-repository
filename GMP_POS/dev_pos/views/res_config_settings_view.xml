@@ -9,41 +9,19 @@
                 
                 <!-- Pricelist Configuration Block -->
                 <block title="Pricelist Configuration" id="pos_pricelist_configuration">
-                    <!-- Main Pricelist Configuration Toggle -->
                     <setting id="pricelist_configuration" string="Pricelist Configuration"
                         help="Enable POSVIT 2.0 Pricelist Configuration.">
                         <field name="pricelist_configuration"/>
-                        
-                        <!-- Sub-settings container -->
-                        <div class="content-group" invisible="not pricelist_configuration">
-                            <div class="mt16 ms-4">
-                                <!-- Customer Pricelist Option -->
-                                <div class="o_setting_box">
-                                    <div class="o_setting_left_pane">
-                                        <field name="vit_cust_pricelist" widget="boolean_toggle"/>
-                                    </div>
-                                    <div class="o_setting_right_pane">
-                                        <label for="vit_cust_pricelist" string="Customer Pricelist"/>
-                                        <div class="text-muted">
-                                            Use individual customer pricelist when available
-                                        </div>
-                                    </div>
-                                </div>
-                                
-                                <!-- Customer Group Pricelist Option -->
-                                <div class="o_setting_box">
-                                    <div class="o_setting_left_pane">
-                                        <field name="vit_cust_group_pricelist" widget="boolean_toggle"/>
-                                    </div>
-                                    <div class="o_setting_right_pane">
-                                        <label for="vit_cust_group_pricelist" string="Customer Group Pricelist"/>
-                                        <div class="text-muted">
-                                            Use customer group pricelist when customer group is assigned
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
+                    </setting>
+                    <setting id="vit_cust_pricelist" string="Customer Pricelist"
+                        help="Use individual customer pricelist when available."
+                        invisible="pricelist_configuration != True">
+                        <field name="vit_cust_pricelist"/>
+                    </setting>
+                    <setting id="vit_cust_group_pricelist" string="Customer Group Pricelist"
+                        help="Use customer group pricelist when customer group is assigned."
+                        invisible="pricelist_configuration != True">
+                        <field name="vit_cust_group_pricelist"/>
                     </setting>
                 </block>
 
@@ -52,11 +30,8 @@
                     <setting id="return_approval_multi_level" 
                              string="Multi-Level Return Approval"
                              help="Enable two-level approval workflow for POS return requests.">
-                        <div class="o_setting_left_pane">
-                            <field name="gm_use_multi_level_approval" widget="boolean_toggle"/>
-                        </div>
-                        <div class="o_setting_right_pane">
-                            <label for="gm_use_multi_level_approval"/>
+                        <field name="gm_use_multi_level_approval"/>
+                        <div class="content-group mt-3" invisible="gm_use_multi_level_approval != True">
                             <div class="text-muted">
                                 When enabled, return approvals require two levels:
                                 <ul class="mb-0 mt-1">
@@ -76,6 +51,32 @@
                                 </ul>
                             </div>
                         </div>
+                    </setting>
+                </block>
+
+                <!-- AUTO ROUNDING CONFIGURATION -->
+                <block title="Auto Rounding Configuration" id="pos_auto_rounding_section">
+                    <setting id="enable_auto_rounding" string="Enable Auto Rounding"
+                        help="Automatically round total amount to nearest rounding value when clicking payment button.">
+                        <field name="enable_auto_rounding"/>
+                        <div class="text-muted" invisible="enable_auto_rounding != True">
+                            System will automatically round to the nearest value (up or down).
+                        </div>
+                    </setting>
+                    <setting id="rounding_value" string="Rounding Value"
+                        help="Value to round to (e.g., 100 for hundreds, 1000 for thousands)."
+                        invisible="enable_auto_rounding != True">
+                        <field name="rounding_value"/>
+                        <div class="text-muted">
+                            Example: 100 → rounds to nearest hundred (11,150 → 11,200 or 11,140 → 11,100)
+                        </div>
+                    </setting>
+                    <setting id="rounding_product_id" string="Rounding Product"
+                        help="Product used for rounding adjustment line in POS."
+                        invisible="enable_auto_rounding != True">
+                        <field name="rounding_product_id" 
+                               domain="[('available_in_pos', '=', True)]"
+                               context="{'default_available_in_pos': True}"/>
                     </setting>
                 </block>
 

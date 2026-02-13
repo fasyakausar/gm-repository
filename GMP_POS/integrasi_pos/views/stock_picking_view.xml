@@ -41,13 +41,6 @@
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
         
-        <!-- Disable add/delete untuk move lines ketika state ready/done -->
-        <field name="move_ids_without_package" position="attributes">
-            <attribute name="readonly">state in ['assigned', 'done']</attribute>
-            <attribute name="create">state not in ['assigned', 'done']</attribute>
-            <attribute name="delete">state not in ['assigned', 'done']</attribute>
-        </field>
-        
         <field name="location_dest_id" position="attributes">
             <attribute name="invisible">0</attribute>
         </field>
