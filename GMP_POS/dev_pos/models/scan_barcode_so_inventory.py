@@ -1,6 +1,10 @@
 from odoo import models, fields, api
 from odoo.exceptions import ValidationError
 
+class SaleOrderLine(models.Model):
+    _inherit = 'sale.order.line'
+    _order = 'sequence desc, id desc'  # ✅ Item dengan sequence tertinggi di atas
+
 class SaleOrder(models.Model):
     _inherit = 'sale.order'
     
@@ -11,7 +15,7 @@ class SaleOrder(models.Model):
         if self.order_line:
             max_seq = max(self.order_line.mapped('sequence') or [0])
             return max_seq + 1
-        return 1
+        return 10  # Mulai dari 10 untuk default
     
     @api.onchange('barcode_input')
     def _onchange_barcode_input(self):
@@ -45,13 +49,13 @@ class SaleOrder(models.Model):
         next_seq = self._get_next_sequence()
         
         if existing_line:
-            # ✅ Update existing line: tambah qty dan update sequence
+            # ✅ Update existing line: tambah qty dan update sequence agar muncul di atas
             existing_line[0].write({
                 'product_uom_qty': existing_line[0].product_uom_qty + 1.0,
                 'sequence': next_seq,
             })
         else:
-            # ✅ Buat line baru menggunakan Command
+            # ✅ Buat line baru dengan sequence tertinggi
             self.order_line = [(0, 0, {
                 'product_id': product.id,
                 'product_uom_qty': 1.0,
@@ -63,6 +67,12 @@ class SaleOrder(models.Model):
         # Reset input
         self.barcode_input = ''
 
+
+class StockMove(models.Model):
+    _inherit = 'stock.move'
+    _order = 'sequence desc, id desc'  # ✅ Move dengan sequence tertinggi di atas
+
+
 class StockPicking(models.Model):
     _inherit = 'stock.picking'
     
@@ -73,7 +83,7 @@ class StockPicking(models.Model):
         if self.move_ids_without_package:
             max_seq = max(self.move_ids_without_package.mapped('sequence') or [0])
             return max_seq + 1
-        return 1
+        return 10  # Mulai dari 10 untuk default
     
     @api.onchange('barcode_input')
     def _onchange_barcode_input(self):
@@ -111,13 +121,13 @@ class StockPicking(models.Model):
         next_seq = self._get_next_sequence()
         
         if existing_move:
-            # ✅ Update existing move: tambah qty dan update sequence
+            # ✅ Update existing move: tambah qty dan update sequence agar muncul di atas
             existing_move[0].write({
                 'product_uom_qty': existing_move[0].product_uom_qty + 1.0,
                 'sequence': next_seq,
             })
         else:
-            # ✅ Buat move baru menggunakan Command
+            # ✅ Buat move baru dengan sequence tertinggi
             self.move_ids_without_package = [(0, 0, {
                 'name': product.name,
                 'product_id': product.id,

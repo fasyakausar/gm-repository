@@ -221,14 +221,32 @@ class InventoryStock(models.Model):
         next_seq = self._get_next_sequence()
 
         if existing_line:
-            # ✅ Update existing line: tambah qty dan update sequence
-            existing_line.write({
-                'counted_qty': existing_line.counted_qty + 1.0,
-                'sequence': next_seq,
-            })
+            # ✅ Update existing line: tambah qty dan update sequence agar muncul di atas
+            new_commands = []
+            
+            for line in self.inventory_counting_ids:
+                if line.id == existing_line[0].id or (not line.id and line == existing_line[0]):
+                    # Update existing line dengan qty baru dan sequence tertinggi
+                    if line.id:
+                        new_commands.append((1, line.id, {
+                            'counted_qty': line.counted_qty + 1.0,
+                            'sequence': next_seq,
+                        }))
+                    else:
+                        # Untuk new record (belum disave)
+                        line.counted_qty += 1.0
+                        line.sequence = next_seq
+                        new_commands.append((4, line.id, 0))
+                else:
+                    # Keep other lines
+                    if line.id:
+                        new_commands.append((4, line.id, 0))
+            
+            if new_commands:
+                self.inventory_counting_ids = new_commands
         else:
-            # ✅ Buat line baru menggunakan Command
-            self.inventory_counting_ids = [(0, 0, {
+            # ✅ Buat line baru di posisi paling atas
+            new_commands = [(0, 0, {
                 'product_id': product.id,
                 'location_id': self.location_id.id,
                 'inventory_date': self.inventory_date,
@@ -237,6 +255,13 @@ class InventoryStock(models.Model):
                 'counted_qty': 1.0,
                 'sequence': next_seq,
             })]
+            
+            # Tambahkan semua existing lines
+            for line in self.inventory_counting_ids:
+                if line.id:
+                    new_commands.append((4, line.id, 0))
+            
+            self.inventory_counting_ids = new_commands
 
         # Reset input
         self.barcode_input = ''
