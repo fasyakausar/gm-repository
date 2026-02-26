@@ -28,7 +28,44 @@ class PosOrder(models.Model):
         readonly=True,
         help='Gift Card code generated for DP order'
     )
+    gm_invoice_e_commerce = fields.Char(string="Invoice Tokopedia", default=False, tracking=True)
+    gm_po_customer = fields.Char(string="PO Customer")
+    gm_nota_manual = fields.Char(string="Nota Manual")
+    
+    def _order_fields(self, ui_order):
+        res = super()._order_fields(ui_order)
+        res['gm_invoice_e_commerce'] = ui_order.get('gm_invoice_number', '')
+        # ✅ NEW
+        res['gm_po_customer']  = ui_order.get('gm_po_customer', '')
+        res['gm_nota_manual']  = ui_order.get('gm_nota_manual', '')
+        return res
 
+    def _prepare_invoice_vals(self):
+        vals = super()._prepare_invoice_vals()
+        if self.gm_invoice_e_commerce:
+            vals['gm_invoice_e_commerce'] = self.gm_invoice_e_commerce
+        # ✅ NEW
+        if self.gm_po_customer:
+            vals['gm_po_customer'] = self.gm_po_customer
+        if self.gm_nota_manual:
+            vals['gm_nota_manual'] = self.gm_nota_manual
+        return vals
+
+    def _generate_pos_order_invoice(self):
+        result = super()._generate_pos_order_invoice()
+        for order in self:
+            update_vals = {}
+            if order.gm_invoice_e_commerce:
+                update_vals['gm_invoice_e_commerce'] = order.gm_invoice_e_commerce
+            # ✅ NEW
+            if order.gm_po_customer:
+                update_vals['gm_po_customer'] = order.gm_po_customer
+            if order.gm_nota_manual:
+                update_vals['gm_nota_manual'] = order.gm_nota_manual
+            if update_vals and order.account_move:
+                order.account_move.sudo().write(update_vals)
+        return result
+    
     def _export_for_ui(self, order):
         """
         ✅ FIXED: Override to handle None pos_reference which causes TypeError

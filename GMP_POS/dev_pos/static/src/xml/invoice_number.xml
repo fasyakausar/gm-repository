@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <!-- Button: Invoice E-Commerce -->
+    <t t-name="GmInvoiceButton">
+        <button class="control-button btn btn-light rounded-0 fw-bolder"
+                t-on-click="onClick">
+            <i class="fa fa-tag me-2" />
+            <span t-esc="label" />
+        </button>
+    </t>
+
+    <!-- Button: PO Customer -->
+    <t t-name="PoCustomerButton">
+        <button class="control-button btn btn-light rounded-0 fw-bolder"
+                t-on-click="onClick">
+            <i class="fa fa-file-text-o me-2" />
+            <span t-esc="label" />
+        </button>
+    </t>
+
+    <!-- Button: Nota Manual -->
+    <t t-name="NotaManualButton">
+        <button class="control-button btn btn-light rounded-0 fw-bolder"
+                t-on-click="onClick">
+            <i class="fa fa-pencil-square-o me-2" />
+            <span t-esc="label" />
+        </button>
+    </t>
+
+    <!-- PaymentScreen: badges for all 3 fields -->
+    <t t-name="gm_fields.PaymentScreenBadges"
+       t-inherit="point_of_sale.PaymentScreenButtons"
+       t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('payment-buttons')]" position="after">
+
+            <!-- Invoice E-Commerce badge -->
+            <div t-if="currentOrder.getGmInvoiceNumber and currentOrder.getGmInvoiceNumber()"
+                 class="d-flex align-items-center gap-2 px-3 py-2 mt-1 rounded"
+                 style="background:#e8f4fd;border:1px solid #b8d9f0;">
+                <i class="fa fa-tag text-primary" />
+                <span class="text-muted small" style="font-size:0.8rem;">Invoice #: </span>
+                <strong class="text-primary" style="font-size:0.9rem;"
+                    t-esc="currentOrder.getGmInvoiceNumber()" />
+                <button class="btn btn-sm btn-link p-0 ms-auto text-muted"
+                        t-on-click="editInvoiceNumber"
+                        style="font-size:0.75rem;">
+                    <i class="fa fa-pencil" /> Edit
+                </button>
+            </div>
+
+            <!-- PO Customer badge -->
+            <div t-if="currentOrder.getGmPoCustomer and currentOrder.getGmPoCustomer()"
+                 class="d-flex align-items-center gap-2 px-3 py-2 mt-1 rounded"
+                 style="background:#edf7ee;border:1px solid #b2dfb5;">
+                <i class="fa fa-file-text-o text-success" />
+                <span class="text-muted small" style="font-size:0.8rem;">PO Customer: </span>
+                <strong class="text-success" style="font-size:0.9rem;"
+                    t-esc="currentOrder.getGmPoCustomer()" />
+                <button class="btn btn-sm btn-link p-0 ms-auto text-muted"
+                        t-on-click="editPoCustomer"
+                        style="font-size:0.75rem;">
+                    <i class="fa fa-pencil" /> Edit
+                </button>
+            </div>
+
+            <!-- Nota Manual badge -->
+            <div t-if="currentOrder.getGmNotaManual and currentOrder.getGmNotaManual()"
+                 class="d-flex align-items-center gap-2 px-3 py-2 mt-1 rounded"
+                 style="background:#fdf6e3;border:1px solid #f0d9a0;">
+                <i class="fa fa-pencil-square-o text-warning" />
+                <span class="text-muted small" style="font-size:0.8rem;">Nota Manual: </span>
+                <strong class="text-warning" style="font-size:0.9rem;"
+                    t-esc="currentOrder.getGmNotaManual()" />
+                <button class="btn btn-sm btn-link p-0 ms-auto text-muted"
+                        t-on-click="editNotaManual"
+                        style="font-size:0.75rem;">
+                    <i class="fa fa-pencil" /> Edit
+                </button>
+            </div>
+
+        </xpath>
+    </t>
+
+</templates>

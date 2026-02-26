@@ -16,3 +16,6 @@ class AccountMove(models.Model):
         help='Location source from delivery picking (complete name)'
     )
     gm_is_cancel = fields.Boolean(string="Cancel", readonly=True, default=False, tracking=True)
+    gm_invoice_e_commerce = fields.Char(string="Invoice Tokopedia", default=False, tracking=True)
+    gm_po_customer = fields.Char(string="PO Customer")
+    gm_nota_manual = fields.Char(string="Nota Manual")

@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <!--
+        Tambahkan badge nomor invoice di bawah tombol-tombol payment.
+        editInvoiceNumber() tersedia di PaymentScreen component (via patch).
+    -->
+    <t t-name="gm_invoice_ecommerce.PaymentScreenButtons"
+       t-inherit="point_of_sale.PaymentScreenButtons"
+       t-inherit-mode="extension">
+        <xpath expr="//div[hasclass('payment-buttons')]" position="after">
+            <div t-if="currentOrder.getGmInvoiceNumber and currentOrder.getGmInvoiceNumber()"
+                 class="gm-invoice-number-display d-flex align-items-center gap-2 px-3 py-2 mt-1 rounded"
+                 style="background: #e8f4fd; border: 1px solid #b8d9f0;">
+                <i class="fa fa-tag text-primary" />
+                <span class="text-muted small" style="font-size: 0.8rem;">Invoice #: </span>
+                <strong class="text-primary" style="font-size: 0.9rem;"
+                    t-esc="currentOrder.getGmInvoiceNumber()" />
+                <button class="btn btn-sm btn-link p-0 ms-auto text-muted"
+                        t-on-click="editInvoiceNumber"
+                        style="font-size: 0.75rem;">
+                    <i class="fa fa-pencil" /> Edit
+                </button>
+            </div>
+        </xpath>
+    </t>
+
+</templates>

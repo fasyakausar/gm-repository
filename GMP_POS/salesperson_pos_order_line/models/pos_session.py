@@ -7,12 +7,13 @@ class PosSession(models.Model):
 
     def load_pos_data(self):
         """Load POS data and add `hr_employee` (sales only) to the response dictionary.
-        return: A dictionary containing the POS data.
+        
+        ✅ Include `user_id` field agar JavaScript bisa mapping
+           SO.user_id (res.users) → hr.employee.user_id → hr.employee
         """
         res = super().load_pos_data()
-        # Filter hanya employee dengan is_sales = True
         res['hr_employee'] = self.env['hr.employee'].search_read(
             domain=[('is_sales', '=', True)],
-            fields=['name']
+            fields=['name', 'user_id'],  # ✅ user_id = Many2one ke res.users → [id, name]
         )
         return res

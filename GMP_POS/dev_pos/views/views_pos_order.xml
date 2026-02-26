@@ -13,6 +13,9 @@
             <field name="vit_id"/>
             <field name="is_integrated"/>
             <field name="gift_card_code"/>
+            <field name="gm_invoice_e_commerce"/>
+            <field name="gm_po_customer"/>
+            <field name="gm_nota_manual"/>
         </xpath>
         <xpath expr="//field[@name='payment_ids']/tree/field[@name='payment_date']" position="before">
           <field name="is_integrated"/>

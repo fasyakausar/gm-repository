@@ -1461,6 +1461,9 @@ class POSTMasterCustomer(http.Controller):
             updated = []
             failed = []
 
+            # ✅ Valid values untuk gm_bp_type
+            VALID_BP_TYPES = ['vendor', 'customer']
+
             for data_item in items:
                 try:
                     customer_code = data_item.get('customer_code')
@@ -1470,6 +1473,21 @@ class POSTMasterCustomer(http.Controller):
                             'company_id': None,
                             'company_name': None,
                             'message': "Missing customer_code",
+                            'id': None
+                        })
+                        continue
+
+                    # =====================================
+                    # ✅ VALIDASI gm_bp_type
+                    # =====================================
+                    gm_bp_type = data_item.get('gm_bp_type', 'customer')
+
+                    if gm_bp_type not in VALID_BP_TYPES:
+                        failed.append({
+                            'data': data_item,
+                            'company_id': None,
+                            'company_name': None,
+                            'message': f"Invalid gm_bp_type '{gm_bp_type}'. Must be one of: {VALID_BP_TYPES}",
                             'id': None
                         })
                         continue
@@ -1499,31 +1517,10 @@ class POSTMasterCustomer(http.Controller):
                             continue
 
                     # =====================================
-                    # CUSTOMER RANK & SUPPLIER RANK
-                    # =====================================
-                    try:
-                        customer_rank = int(data_item.get('customer_rank', 0) or 0)
-                        supplier_rank = int(data_item.get('supplier_rank', 0) or 0)
-
-                        if customer_rank < 0 or supplier_rank < 0:
-                            raise ValueError("Rank must be >= 0")
-
-                    except Exception:
-                        failed.append({
-                            'data': data_item,
-                            'company_id': None,
-                            'company_name': None,
-                            'message': "customer_rank and supplier_rank must be integer >= 0",
-                            'id': None
-                        })
-                        continue
-
-                    # =====================================
                     # IS_INTEGRATED (Boolean validation)
                     # =====================================
                     is_integrated = data_item.get('is_integrated', False)
                     if not isinstance(is_integrated, bool):
-                        # Try to convert string to boolean
                         if isinstance(is_integrated, str):
                             is_integrated = is_integrated.lower() in ['true', '1', 'yes']
                         else:
@@ -1538,7 +1535,7 @@ class POSTMasterCustomer(http.Controller):
                                 ('company_id', '=', company.id)
                             ], limit=1)
                             
-                            # Prepare vals
+                            # ✅ Prepare vals - pakai gm_bp_type, hapus customer_rank & supplier_rank
                             customer_vals = {
                                 'name': data_item.get('name'),
                                 'customer_code': customer_code,
@@ -1553,12 +1550,15 @@ class POSTMasterCustomer(http.Controller):
                                 'mobile': data_item.get('mobile'),
                                 'website': data_item.get('website'),
 
-                                # RANK FIELDS
-                                'customer_rank': customer_rank,
-                                'supplier_rank': supplier_rank,
+                                # ✅ GANTI: pakai gm_bp_type
+                                'gm_bp_type': gm_bp_type,
 
                                 # IS_INTEGRATED FIELD
                                 'is_integrated': is_integrated,
+
+                                # TAX / PKP FIELDS
+                                'vat': data_item.get('tax_id'),
+                                'l10n_id_pkp': data_item.get('l10n_id_pkp', False),
 
                                 'company_id': company.id,
                             }
@@ -1607,7 +1607,6 @@ class POSTMasterCustomer(http.Controller):
                                     continue
 
                             if existing:
-                                # Update
                                 existing.write(customer_vals)
                                 updated.append({
                                     'id': existing.id,
@@ -1616,13 +1615,12 @@ class POSTMasterCustomer(http.Controller):
                                     'email': existing.email,
                                     'company_id': company.id,
                                     'company_name': company.name,
-                                    'customer_rank': existing.customer_rank,
-                                    'supplier_rank': existing.supplier_rank,
+                                    # ✅ GANTI: pakai gm_bp_type
+                                    'gm_bp_type': existing.gm_bp_type,
                                     'is_integrated': existing.is_integrated,
                                     'action': 'updated'
                                 })
                             else:
-                                # Create
                                 customer_vals['create_uid'] = uid
                                 customer = env['res.partner'].sudo().create(customer_vals)
                                 created.append({
@@ -1632,8 +1630,8 @@ class POSTMasterCustomer(http.Controller):
                                     'email': customer.email,
                                     'company_id': company.id,
                                     'company_name': company.name,
-                                    'customer_rank': customer.customer_rank,
-                                    'supplier_rank': customer.supplier_rank,
+                                    # ✅ GANTI: pakai gm_bp_type
+                                    'gm_bp_type': customer.gm_bp_type,
                                     'is_integrated': customer.is_integrated,
                                     'action': 'created'
                                 })

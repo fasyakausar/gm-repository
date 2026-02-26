@@ -12,8 +12,9 @@
                     <h2><strong>PROFORMA INVOICE</strong></h2>
                 </div>
                 
-                <!-- Invoice Information -->
+                <!-- Invoice Information + Customer -->
                 <div class="row mb-4">
+                    <!-- Left: Invoice Info -->
                     <div class="col-6">
                         <table class="table table-sm table-borderless">
                             <tr>
@@ -34,17 +35,44 @@
                             </tr>
                         </table>
                     </div>
+
+                    <!-- Right: Customer + Ship To + Payment Terms -->
                     <div class="col-6">
+                        <!-- Customer / Bill To -->
                         <table class="table table-sm table-borderless">
+                            <tr>
+                                <td style="width: 35%;"><strong>Bill To:</strong></td>
+                                <td>
+                                    <strong><span t-field="o.partner_id.name"/></strong><br/>
+                                    <span t-if="o.partner_id.street"
+                                          t-field="o.partner_id.street"/><br t-if="o.partner_id.street"/>
+                                    <span t-if="o.partner_id.street2"
+                                          t-field="o.partner_id.street2"/><br t-if="o.partner_id.street2"/>
+                                    <span t-if="o.partner_id.city"
+                                          t-field="o.partner_id.city"/>
+                                    <span t-if="o.partner_id.state_id"
+                                          t-field="o.partner_id.state_id.name"/><br t-if="o.partner_id.city or o.partner_id.state_id"/>
+                                    <span t-if="o.partner_id.country_id"
+                                          t-field="o.partner_id.country_id.name"/><br t-if="o.partner_id.country_id"/>
+                                    <span t-if="o.partner_id.vat">
+                                        Tax ID: <span t-field="o.partner_id.vat"/>
+                                    </span>
+                                </td>
+                            </tr>
                             <tr t-if="o.partner_shipping_id and o.partner_shipping_id != o.partner_id">
-                                <td><strong>SHIP TO:</strong></td>
+                                <td><strong>Ship To:</strong></td>
                                 <td>
                                     <span t-field="o.partner_shipping_id.name"/><br/>
-                                    <span t-field="o.partner_shipping_id.street" t-if="o.partner_shipping_id.street"/><br/>
-                                    <span t-field="o.partner_shipping_id.street2" t-if="o.partner_shipping_id.street2"/><br/>
-                                    <span t-field="o.partner_shipping_id.city" t-if="o.partner_shipping_id.city"/>
-                                    <span t-field="o.partner_shipping_id.state_id.name" t-if="o.partner_shipping_id.state_id"/><br/>
-                                    <span t-field="o.partner_shipping_id.country_id.name" t-if="o.partner_shipping_id.country_id"/>
+                                    <span t-if="o.partner_shipping_id.street"
+                                          t-field="o.partner_shipping_id.street"/><br t-if="o.partner_shipping_id.street"/>
+                                    <span t-if="o.partner_shipping_id.street2"
+                                          t-field="o.partner_shipping_id.street2"/><br t-if="o.partner_shipping_id.street2"/>
+                                    <span t-if="o.partner_shipping_id.city"
+                                          t-field="o.partner_shipping_id.city"/>
+                                    <span t-if="o.partner_shipping_id.state_id"
+                                          t-field="o.partner_shipping_id.state_id.name"/><br t-if="o.partner_shipping_id.city or o.partner_shipping_id.state_id"/>
+                                    <span t-if="o.partner_shipping_id.country_id"
+                                          t-field="o.partner_shipping_id.country_id.name"/>
                                 </td>
                             </tr>
                             <tr t-if="o.payment_term_id">
@@ -146,11 +174,9 @@
                                 </t>
                             </t>
 
-                            <!-- Kemudian tampilkan taxes -->
                             <t t-foreach="taxes_summary.items()" t-as="tax_item">
                                 <tr>
                                     <td class="text-end">
-                                        <!-- Cari nama tax berdasarkan ID -->
                                         <t t-set="tax_id" t-value="int(tax_item[0])"/>
                                         <t t-set="tax_name" t-value="''"/>
                                         <t t-foreach="o.order_line.mapped('tax_id')" t-as="tax">

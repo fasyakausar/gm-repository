@@ -4,83 +4,122 @@ import { patch } from "@web/core/utils/patch";
 import { _t } from "@web/core/l10n/translation";
 import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 import { PartnerDetailsEdit } from "@point_of_sale/app/screens/partner_list/partner_editor/partner_editor";
+import { PartnerListScreen } from "@point_of_sale/app/screens/partner_list/partner_list";
+import { PosStore } from "@point_of_sale/app/store/pos_store";
 import { useService } from "@web/core/utils/hooks";
-import { onWillStart } from "@odoo/owl";
-import { useState } from "@odoo/owl";
+import { onWillStart, useState } from "@odoo/owl";
 
-patch(PartnerDetailsEdit.prototype, {
-    setup() {
-        super.setup(...arguments);
-        this.orm = useService("orm");
-        
-        // Add vit_customer_group to intFields for proper processing
-        if (!this.intFields.includes('vit_customer_group')) {
-            this.intFields.push('vit_customer_group');
-        }
-        
-        // Add vit_customer_group to changes
-        const partner = this.props.partner;
-        this.changes.vit_customer_group = partner.vit_customer_group ? partner.vit_customer_group[0] : false;
-        
-        // ✅ Make changes reactive untuk memicu re-render
-        this.changes = useState(this.changes);
-        
-        // Load customer groups
+// =====================================================
+// PATCH PosStore - Load customer groups saat POS init
+// =====================================================
+patch(PosStore.prototype, {
+    async setup() {
+        await super.setup(...arguments);
+
+        // ✅ Inisialisasi DULU dengan array kosong agar getter tidak pernah undefined
         this.customerGroups = [];
-        
-        onWillStart(async () => {
-            await this.loadCustomerGroups();
-        });
-    },
 
-    async loadCustomerGroups() {
         try {
-            this.customerGroups = await this.orm.searchRead(
+            const groups = await this.orm.searchRead(
                 "customer.group",
                 [],
                 ["id", "vit_group_name", "vit_pricelist_id"],
                 { order: "vit_group_name ASC" }
             );
-            console.log("Customer Groups loaded:", this.customerGroups);
+            this.customerGroups = groups || [];
+            console.log("✅ [POS STORE] Customer Groups loaded:", this.customerGroups.length);
         } catch (error) {
-            console.error("Error loading customer groups:", error);
+            console.error("❌ [POS STORE] Error loading customer groups:", error);
             this.customerGroups = [];
         }
+    },
+});
+
+// =====================================================
+// PATCH PartnerDetailsEdit
+// =====================================================
+patch(PartnerDetailsEdit.prototype, {
+    setup() {
+        super.setup(...arguments);
+        this.orm = useService("orm");
+
+        if (!this.intFields.includes('vit_customer_group')) {
+            this.intFields.push('vit_customer_group');
+        }
+
+        const partner = this.props.partner;
+        this.changes.vit_customer_group = partner.vit_customer_group
+            ? partner.vit_customer_group[0]
+            : false;
+
+        // ✅ Set gm_bp_type otomatis
+        this.changes.gm_bp_type = partner.id
+            ? (partner.gm_bp_type || 'customer')
+            : 'customer';
+
+        this.changes = useState(this.changes);
+
+        // ✅ FIX UTAMA: Gunakan useState untuk _customerGroups agar reaktif
+        // Inisialisasi langsung dari pos.customerGroups (sudah di-init sebagai [] di PosStore)
+        this._customerGroups = useState({
+            list: Array.isArray(this.pos.customerGroups) ? [...this.pos.customerGroups] : []
+        });
+
+        // ✅ Gunakan onWillStart sebagai safety net jika PosStore belum selesai load
+        onWillStart(async () => {
+            // Jika data sudah ada dari PosStore, gunakan langsung
+            if (this.pos.customerGroups && this.pos.customerGroups.length > 0) {
+                this._customerGroups.list = [...this.pos.customerGroups];
+                return;
+            }
+
+            // Fallback: load sendiri jika PosStore belum ready
+            try {
+                const groups = await this.orm.searchRead(
+                    "customer.group",
+                    [],
+                    ["id", "vit_group_name", "vit_pricelist_id"],
+                    { order: "vit_group_name ASC" }
+                );
+                const result = groups || [];
+                this._customerGroups.list = result;
+                // Simpan ke PosStore juga agar konsisten
+                this.pos.customerGroups = result;
+                console.log("✅ [EDITOR] Customer Groups loaded (fallback):", result.length);
+            } catch (error) {
+                console.error("❌ [EDITOR] Error loading customer groups:", error);
+                this._customerGroups.list = [];
+            }
+        });
+    },
+
+    // ✅ Getter: SELALU kembalikan array, tidak pernah undefined/null
+    get customerGroups() {
+        // Prioritas: _customerGroups (reactive state) → pos.customerGroups → []
+        if (this._customerGroups && Array.isArray(this._customerGroups.list)) {
+            return this._customerGroups.list;
+        }
+        if (this.pos && Array.isArray(this.pos.customerGroups)) {
+            return this.pos.customerGroups;
+        }
+        return [];
     },
 
     async onCustomerGroupChange(ev) {
         const customerGroupId = parseInt(ev.target.value) || false;
-        
-        // ✅ Update dengan reactive state
         this.changes.vit_customer_group = customerGroupId;
-        
-        console.log("Customer Group Changed:", customerGroupId);
-        
+
         if (customerGroupId) {
-            // Find the selected customer group
-            const selectedGroup = this.customerGroups.find(
-                group => group.id === customerGroupId
-            );
-            
-            console.log("Selected Group:", selectedGroup);
-            
-            if (selectedGroup && selectedGroup.vit_pricelist_id) {
-                // ✅ Auto-fill pricelist (akan trigger re-render karena reactive)
+            const selectedGroup = this.customerGroups.find(g => g.id === customerGroupId);
+            if (selectedGroup?.vit_pricelist_id) {
                 this.changes.property_product_pricelist = selectedGroup.vit_pricelist_id[0];
-                console.log("Pricelist set to:", this.changes.property_product_pricelist);
-                
-                // ✅ Render kembali field pricelist secara eksplisit
-                this.render();
+                console.log("✅ Pricelist auto-set:", selectedGroup.vit_pricelist_id);
             }
         } else {
-            // Reset pricelist to default if customer group is cleared
             const partner = this.props.partner;
-            const defaultPricelist = partner.property_product_pricelist 
-                ? partner.property_product_pricelist[0] 
-                : this.pos.config.pricelist_id[0];
-            
-            this.changes.property_product_pricelist = defaultPricelist;
-            this.render();
+            this.changes.property_product_pricelist = partner.property_product_pricelist
+                ? partner.property_product_pricelist[0]
+                : this.pos.config.pricelist_id?.[0];
         }
     },
 
@@ -94,50 +133,46 @@ patch(PartnerDetailsEdit.prototype, {
             }
         }
 
-        console.log("=== DEBUG SAVE ===");
-        console.log("Raw changes:", JSON.parse(JSON.stringify(this.changes)));
-        console.log("Processed changes:", JSON.parse(JSON.stringify(processedChanges)));
-        console.log("Phone value:", processedChanges.phone);
-        console.log("Phone type:", typeof processedChanges.phone);
+        // ✅ Pastikan gm_bp_type selalu terisi
+        if (!processedChanges.gm_bp_type) {
+            processedChanges.gm_bp_type = 'customer';
+        }
 
-        // ✅ Validasi jika 'phone' wajib diisi
+        // Validasi phone
         const phoneValue = processedChanges.phone;
-        if (!phoneValue || phoneValue === false || (typeof phoneValue === 'string' && phoneValue.trim() === "")) {
-            console.log("Phone validation FAILED");
+        if (!phoneValue || (typeof phoneValue === 'string' && phoneValue.trim() === "")) {
             return this.popup.add(ErrorPopup, {
                 title: _t("Phone Number Is Required"),
                 body: _t("Please enter a phone number before saving the customer."),
             });
         }
-        console.log("Phone validation PASSED");
 
-        // ✅ Auto-fill pricelist dari customer group sebelum save
+        // Auto-fill pricelist dari customer group
         if (processedChanges.vit_customer_group) {
             const selectedGroup = this.customerGroups.find(
-                group => group.id === processedChanges.vit_customer_group
+                g => g.id === processedChanges.vit_customer_group
             );
-            
-            if (selectedGroup && selectedGroup.vit_pricelist_id) {
+            if (selectedGroup?.vit_pricelist_id) {
                 processedChanges.property_product_pricelist = selectedGroup.vit_pricelist_id[0];
-                console.log("Saving with pricelist from customer group:", processedChanges.property_product_pricelist);
             }
         }
 
-        // ✅ Set company_id dari pos.config
-        if (this.pos.company && this.pos.company.id) {
+        // Set company_id
+        if (this.pos.company?.id) {
             processedChanges.company_id = this.pos.company.id;
-            console.log("Setting company_id to:", processedChanges.company_id);
         }
 
-        // Validasi jika state tidak sesuai dengan country
+        // Validasi state vs country
         if (
             processedChanges.state_id &&
-            this.pos.states.find((state) => state.id === processedChanges.state_id)?.country_id[0] !== processedChanges.country_id
+            this.pos.states.find(
+                s => s.id === processedChanges.state_id
+            )?.country_id[0] !== processedChanges.country_id
         ) {
             processedChanges.state_id = false;
         }
 
-        // Validasi jika nama kosong
+        // Validasi nama
         if ((!this.props.partner.name && !processedChanges.name) || processedChanges.name === "") {
             return this.popup.add(ErrorPopup, {
                 title: _t("A Customer Name Is Required"),
@@ -145,21 +180,33 @@ patch(PartnerDetailsEdit.prototype, {
         }
 
         processedChanges.id = this.props.partner.id || false;
-        
-        console.log("Final processedChanges:", JSON.parse(JSON.stringify(processedChanges)));
-        
+        console.log("✅ Final processedChanges:", JSON.parse(JSON.stringify(processedChanges)));
         this.props.saveChanges(processedChanges);
     },
 
     isFieldCommercialAndPartnerIsChild(field) {
-        // Pricelist is readonly when customer group is set
         if (field === 'property_product_pricelist' && this.changes.vit_customer_group) {
             return true;
         }
-        
         return (
             this.pos.isChildPartner(this.props.partner) &&
             this.pos.partner_commercial_fields.includes(field)
         );
     }
+});
+
+// =====================================================
+// PATCH PartnerListScreen
+// =====================================================
+patch(PartnerListScreen.prototype, {
+    createPartner() {
+        super.createPartner(...arguments);
+        if (this.state.editModeProps.partner) {
+            this.state.editModeProps.partner = {
+                ...this.state.editModeProps.partner,
+                gm_bp_type: 'customer',
+            };
+            console.log("✅ [GM BP TYPE] createPartner: gm_bp_type = 'customer'");
+        }
+    },
 });

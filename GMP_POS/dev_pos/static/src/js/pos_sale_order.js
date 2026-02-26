@@ -13,8 +13,16 @@ function getId(fieldVal) {
 }
 
 patch(SaleOrderManagementScreen.prototype, {
+    /**
+     * Cari hr.employee yang terhubung ke res.users berdasarkan user_id dari SO.
+     * SO.user_id → res.users → hr.employee (via user_id field di hr.employee)
+     */
+    _getSalespersonEmployee(resUserId) {
+        if (!resUserId || !this.pos.hr_employee) return null;
+        return this.pos.hr_employee.find(emp => emp.user_id === resUserId) || null;
+    },
+
     async onClickSaleOrder(clickedOrder) {
-        // BYPASS POPUP - Langsung eksekusi settle order
         let currentPOSOrder = this.pos.get_order();
         const sale_order = await this._getSaleOrder(clickedOrder.id);
         clickedOrder.shipping_date = this.pos.config.ship_later && sale_order.shipping_date;
@@ -72,7 +80,25 @@ patch(SaleOrderManagementScreen.prototype, {
             currentPOSOrder.set_pricelist(orderPricelist);
         }
 
-        // SETTLE THE ORDER - tanpa popup
+        // ✅ Resolve salesperson: SO.user_id (res.users) → hr.employee
+        // sale_order.user_id = [id, name] seperti Many2one field Odoo
+        const soUserId = sale_order.user_id ? getId(sale_order.user_id) : null;
+        const soUserName = sale_order.user_id ? sale_order.user_id[1] : "";
+        const employeeMatch = soUserId ? this._getSalespersonEmployee(soUserId) : null;
+
+        if (employeeMatch) {
+            console.log(
+                "✅ [SALESPERSON] SO user_id=%s (%s) → hr.employee id=%s name=%s",
+                soUserId, soUserName, employeeMatch.id, employeeMatch.name
+            );
+        } else if (soUserId) {
+            console.warn(
+                "⚠️ [SALESPERSON] SO user_id=%s (%s) tidak ditemukan di hr.employee (is_sales=True)",
+                soUserId, soUserName
+            );
+        }
+
+        // SETTLE THE ORDER
         const lines = sale_order.order_line;
         const product_to_add_in_pos = lines
             .filter((line) => !this.pos.db.get_product_by_id(line.product_id[0]))
@@ -120,6 +146,16 @@ patch(SaleOrderManagementScreen.prototype, {
             };
             const new_line = new Orderline({ env: this.env }, line_values);
 
+            // ✅ Set salesperson dari SO ke setiap orderline
+            if (employeeMatch) {
+                new_line.salesperson = String(employeeMatch.name);
+                new_line.user_id = Number(employeeMatch.id);
+            } else if (soUserName) {
+                // Fallback: pakai nama dari SO langsung, tanpa employee id
+                new_line.salesperson = String(soUserName);
+                new_line.user_id = 0;
+            }
+
             if (
                 new_line.get_product().tracking !== "none" &&
                 (this.pos.picking_type.use_create_lots ||
@@ -150,14 +186,22 @@ patch(SaleOrderManagementScreen.prototype, {
             new_line.setQuantityFromSOL(line);
             new_line.set_unit_price(line.price_unit);
             new_line.set_discount(line.discount);
-            
+
             const product = this.pos.db.get_product_by_id(line.product_id[0]);
             const product_unit = product.get_unit();
-            
+
             if (product_unit && !product.get_unit().is_pos_groupable) {
                 let remaining_quantity = new_line.quantity;
                 while (!floatIsZero(remaining_quantity, 6)) {
                     const splitted_line = new Orderline({ env: this.env }, line_values);
+                    // ✅ Propagate salesperson ke split lines
+                    if (employeeMatch) {
+                        splitted_line.salesperson = String(employeeMatch.name);
+                        splitted_line.user_id = Number(employeeMatch.id);
+                    } else if (soUserName) {
+                        splitted_line.salesperson = String(soUserName);
+                        splitted_line.user_id = 0;
+                    }
                     splitted_line.set_quantity(Math.min(remaining_quantity, 1.0), true);
                     splitted_line.set_discount(line.discount);
                     this.pos.get_order().add_orderline(splitted_line);
@@ -168,6 +212,14 @@ patch(SaleOrderManagementScreen.prototype, {
                 for (const lot of line.lot_names) {
                     total_lot_quantity += line.lot_qty_by_name?.[lot] || 0;
                     const splitted_line = new Orderline({ env: this.env }, line_values);
+                    // ✅ Propagate salesperson ke lot lines
+                    if (employeeMatch) {
+                        splitted_line.salesperson = String(employeeMatch.name);
+                        splitted_line.user_id = Number(employeeMatch.id);
+                    } else if (soUserName) {
+                        splitted_line.salesperson = String(soUserName);
+                        splitted_line.user_id = 0;
+                    }
                     splitted_line.set_quantity(line.lot_qty_by_name?.[lot] || 0, true);
                     splitted_line.set_unit_price(line.price_unit);
                     splitted_line.set_discount(line.discount);
@@ -181,6 +233,14 @@ patch(SaleOrderManagementScreen.prototype, {
                 if (total_lot_quantity < new_line.quantity) {
                     const remaining_quantity = new_line.quantity - total_lot_quantity;
                     const splitted_line = new Orderline({ env: this.env }, line_values);
+                    // ✅ Propagate salesperson ke sisa line
+                    if (employeeMatch) {
+                        splitted_line.salesperson = String(employeeMatch.name);
+                        splitted_line.user_id = Number(employeeMatch.id);
+                    } else if (soUserName) {
+                        splitted_line.salesperson = String(soUserName);
+                        splitted_line.user_id = 0;
+                    }
                     splitted_line.set_quantity(remaining_quantity, true);
                     splitted_line.set_unit_price(line.price_unit);
                     splitted_line.set_discount(line.discount);

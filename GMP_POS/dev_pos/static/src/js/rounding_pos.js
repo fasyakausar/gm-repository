@@ -7,14 +7,10 @@ import { patch } from "@web/core/utils/patch";
 // PATCH ORDERLINE - Set flag saat dibuat
 // =====================================================
 patch(Orderline.prototype, {
-    /**
-     * Override init untuk detect rounding product
-     */
     init_from_JSON(json) {
         super.init_from_JSON(...arguments);
-        
-        // Check if this is a rounding product
-        if (this.order?.pos?.config?.rounding_product_id && 
+
+        if (this.order?.pos?.config?.rounding_product_id &&
             this.product?.id === this.order.pos.config.rounding_product_id) {
             this.is_rounding_line = true;
             console.log('🎯 [ROUNDING FLAG] Set via init_from_JSON:', this.product.display_name);
@@ -23,24 +19,57 @@ patch(Orderline.prototype, {
 });
 
 // =====================================================
-// PATCH ORDER - Auto rounding logic
+// PATCH ORDER - Auto rounding + GM Fields
 // =====================================================
 patch(Order.prototype, {
+
+    // --------------------------------------------------
+    // Setup: inisialisasi semua state
+    // --------------------------------------------------
     setup() {
         super.setup(...arguments);
         this._rounding_applied = false;
         this._rounding_amount = 0;
+        this.gm_invoice_number = this.gm_invoice_number || "";
+        this.gm_po_customer    = this.gm_po_customer    || "";
+        this.gm_nota_manual    = this.gm_nota_manual    || "";
     },
 
-    pay() {
+    // --------------------------------------------------
+    // GM Invoice: getter & setter
+    // --------------------------------------------------
+    getGmInvoiceNumber()  { return this.gm_invoice_number || ""; },
+    setGmInvoiceNumber(v) { this.gm_invoice_number = v || ""; },
+
+    // --------------------------------------------------
+    // PO Customer: getter & setter
+    // --------------------------------------------------
+    getGmPoCustomer()     { return this.gm_po_customer || ""; },
+    setGmPoCustomer(v)    { this.gm_po_customer = v || ""; },
+
+    // --------------------------------------------------
+    // Nota Manual: getter & setter
+    // --------------------------------------------------
+    getGmNotaManual()     { return this.gm_nota_manual || ""; },
+    setGmNotaManual(v)    { this.gm_nota_manual = v || ""; },
+
+    // --------------------------------------------------
+    // pay(): rounding only → lanjut ke Payment Screen
+    // --------------------------------------------------
+    async pay() {
+        // Auto rounding
         try {
             this.applyAutoRounding();
         } catch (error) {
             console.error('❌ Error applying auto rounding:', error);
         }
+
         return super.pay(...arguments);
     },
 
+    // --------------------------------------------------
+    // Auto rounding logic
+    // --------------------------------------------------
     applyAutoRounding() {
         if (!this.pos || !this.pos.config) {
             console.warn('⚠️ POS or config not available');
@@ -48,7 +77,7 @@ patch(Order.prototype, {
         }
 
         const config = this.pos.config;
-        
+
         if (!config.enable_auto_rounding) {
             console.log('ℹ️ Auto rounding is disabled');
             return;
@@ -72,12 +101,7 @@ patch(Order.prototype, {
         const roundedTotal = Math.round(currentTotal / roundingValue) * roundingValue;
         const roundingAmount = roundedTotal - currentTotal;
 
-        console.log('Calculation:', {
-            currentTotal,
-            roundingValue,
-            roundedTotal,
-            roundingAmount,
-        });
+        console.log('Calculation:', { currentTotal, roundingValue, roundedTotal, roundingAmount });
 
         if (Math.abs(roundingAmount) < 0.01) {
             console.log('✅ No rounding needed');
@@ -87,7 +111,7 @@ patch(Order.prototype, {
         }
 
         const roundingProduct = this.pos.db.get_product_by_id(roundingConfig.product_id);
-        
+
         if (!roundingProduct) {
             console.error('❌ Rounding product not found');
             console.groupEnd();
@@ -97,45 +121,30 @@ patch(Order.prototype, {
         console.log(`📦 Using rounding product: ${roundingProduct.display_name} (ID: ${roundingProduct.id})`);
 
         try {
-            // ✅ CRITICAL: Mark product as rounding BEFORE adding
             roundingProduct.is_rounding_line = true;
-            
+
             const roundingLine = this.add_product(roundingProduct, {
                 price: roundingAmount,
                 quantity: 1,
                 merge: false,
-                extras: {
-                    price_type: 'manual',
-                },
+                extras: { price_type: 'manual' },
             });
 
             if (roundingLine) {
-                // ✅ FORCE SET FLAGS - Multiple approaches
                 roundingLine.is_rounding_line = true;
-                
                 if (roundingLine.product) {
                     roundingLine.product.is_rounding_line = true;
                 }
-                
-                // ✅ Also set a custom property that we can check
                 roundingLine.gm_is_rounding = true;
-                
+
                 this._rounding_applied = true;
                 this._rounding_amount = roundingAmount;
-                
-                console.log('✅ Rounding line added with flags:');
-                console.log('   Line CID:', roundingLine.cid);
-                console.log('   line.is_rounding_line:', roundingLine.is_rounding_line);
-                console.log('   line.gm_is_rounding:', roundingLine.gm_is_rounding);
-                console.log('   product.is_rounding_line:', roundingLine.product?.is_rounding_line);
-                console.log('   product.id:', roundingLine.product?.id);
-                console.log('   config.rounding_product_id:', this.pos.config.rounding_product_id);
-                console.log('   Amount:', roundingAmount);
-                
-                // ✅ VERIFY FLAGS IMMEDIATELY
-                const verification = this.verifyRoundingLine(roundingLine);
-                console.log('   Verification:', verification);
-                
+
+                console.log('✅ Rounding line added:', {
+                    cid: roundingLine.cid,
+                    amount: roundingAmount,
+                    verification: this.verifyRoundingLine(roundingLine),
+                });
             } else {
                 console.error('❌ Failed to add rounding line');
             }
@@ -146,9 +155,6 @@ patch(Order.prototype, {
         console.groupEnd();
     },
 
-    /**
-     * Verify if a line is a rounding line using multiple methods
-     */
     verifyRoundingLine(line) {
         const methods = {
             byFlag: line.is_rounding_line === true,
@@ -156,23 +162,15 @@ patch(Order.prototype, {
             byProductFlag: line.product?.is_rounding_line === true,
             byProductId: line.product?.id === this.pos?.config?.rounding_product_id,
         };
-        
         const isRounding = Object.values(methods).some(v => v === true);
-        
-        return {
-            isRounding,
-            methods,
-            productId: line.product?.id,
-            configProductId: this.pos?.config?.rounding_product_id,
-        };
+        return { isRounding, methods, productId: line.product?.id, configProductId: this.pos?.config?.rounding_product_id };
     },
 
     removeRoundingLine() {
         try {
             const allLines = this.get_orderlines();
-            
             console.log('🔍 [REMOVE ROUNDING] Checking orderlines:', allLines.length);
-            
+
             const roundingLines = allLines.filter(line => {
                 const verification = this.verifyRoundingLine(line);
                 if (verification.isRounding) {
@@ -180,14 +178,10 @@ patch(Order.prototype, {
                 }
                 return verification.isRounding;
             });
-            
+
             if (roundingLines.length > 0) {
                 console.log(`🗑️ [REMOVE ROUNDING] Removing ${roundingLines.length} rounding line(s)`);
                 roundingLines.forEach((line) => {
-                    console.log(`   - Removing:`, {
-                        product: line.product?.display_name,
-                        amount: line.get_price_with_tax(),
-                    });
                     this.removeOrderline(line);
                 });
                 this._rounding_applied = false;
@@ -200,18 +194,28 @@ patch(Order.prototype, {
         }
     },
 
+    // --------------------------------------------------
+    // Serialization: simpan semua state ke JSON
+    // --------------------------------------------------
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
-        json._rounding_applied = this._rounding_applied || false;
-        json._rounding_amount = this._rounding_amount || 0;
+        json._rounding_applied     = this._rounding_applied || false;
+        json._rounding_amount      = this._rounding_amount  || 0;
+        // Gunakan nama field Python agar Odoo ORM langsung mengenali dan menyimpannya
+        json.gm_invoice_e_commerce = this.gm_invoice_number || "";
+        json.gm_po_customer        = this.gm_po_customer    || "";
+        json.gm_nota_manual        = this.gm_nota_manual    || "";
         return json;
     },
 
     init_from_JSON(json) {
         super.init_from_JSON(...arguments);
-        this._rounding_applied = json._rounding_applied || false;
-        this._rounding_amount = json._rounding_amount || 0;
+        this._rounding_applied = json._rounding_applied     || false;
+        this._rounding_amount  = json._rounding_amount      || 0;
+        this.gm_invoice_number = json.gm_invoice_e_commerce || "";
+        this.gm_po_customer    = json.gm_po_customer        || "";
+        this.gm_nota_manual    = json.gm_nota_manual        || "";
     },
 });
 
-console.log("✅ [AUTO ROUNDING v6] Loaded with aggressive flag setting");
+console.log("✅ [AUTO ROUNDING v6 + GM FIELDS] Loaded");

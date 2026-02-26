@@ -87,6 +87,7 @@
             'dev_pos/static/src/xml/pos_dp_paymentline.xml',
             'dev_pos/static/src/xml/remove_delete_button_payment.xml',
             'dev_pos/static/src/xml/back_button.xml',
+            'dev_pos/static/src/xml/invoice_number.xml',
             'dev_pos/static/src/js/pos_session_load.js',
             'dev_pos/static/src/js/coupon_frontend.js',
             'dev_pos/static/src/js/pos_dp_productscreen.js',
@@ -101,6 +102,8 @@
             'dev_pos/static/src/js/remove_delete_button_payment.js',
             'dev_pos/static/src/js/rounding_pos.js',
             'dev_pos/static/src/js/rounding_delete.js',
+            'dev_pos/static/src/js/invoice_number.js',
+            'dev_pos/static/src/js/notes_button.js',
             # 'dev_pos/static/src/js/quantity_lock.js',
         ],
         'web.assets_backend': [

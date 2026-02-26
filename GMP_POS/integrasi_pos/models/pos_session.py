@@ -821,8 +821,11 @@ class PosSession(models.Model):
         Override untuk memastikan ALL partners ter-load dengan proper domain
         dan FORCE INCLUDE default customer
         """
-        # ✅ SIMPLE DOMAIN: Load semua active partners
-        domain = [('active', '=', True)]
+        # ✅ Filter hanya customer (gm_bp_type = 'customer')
+        domain = [
+            ('active', '=', True),
+            ('gm_bp_type', '=', 'customer'),
+        ]
         
         _logger.info(f"🔍 Base partner domain: {domain}")
         
@@ -833,7 +836,7 @@ class PosSession(models.Model):
             _logger.info(f"🎯 Force including default customer: '{default_partner_name}' (ID: {default_partner_id})")
             
             # Add OR condition untuk default partner
-            domain = ['|', ('id', '=', default_partner_id)] + domain
+            domain = ['|', ('id', '=', default_partner_id), '&'] + domain
             _logger.info(f"🔍 Modified domain: {domain}")
         
         return {
@@ -846,7 +849,7 @@ class PosSession(models.Model):
                     'property_product_pricelist', 'parent_name', 'category_id',
                     'vit_customer_group',
                 ],
-                'limit': 10000,  # High limit untuk memastikan semua ter-load
+                'limit': 10000,
                 'order': 'name ASC',
             }
         }
