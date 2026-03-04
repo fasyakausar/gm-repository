@@ -1,33 +1,8 @@
 # -*- coding: utf-8 -*-
-################################################################################
-#
-#    Cybrosys Technologies Pvt. Ltd.
-#
-#    Copyright (C) 2024-TODAY Cybrosys Technologies(<https://www.cybrosys.com>).
-#    Author: Sadique Kottekkat (<https://www.cybrosys.com>)
-#
-#    This program is free software: you can modify
-#    it under the terms of the GNU Affero General Public License (AGPL) as
-#    published by the Free Software Foundation, either version 3 of the
-#    License, or (at your option) any later version.
-#
-#    This program is distributed in the hope that it will be useful,
-#    but WITHOUT ANY WARRANTY; without even the implied warranty of
-#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#    GNU Affero General Public License for more details.
-#
-#    You should have received a copy of the GNU Affero General Public License
-#    along with this program.  If not, see <https://www.gnu.org/licenses/>.
-#
-################################################################################
 from odoo import fields, models
 
 
 class PosConfig(models.Model):
-    """
-        This is an Odoo model for Point of Sale (POS).
-        It inherits the 'pos.config' model to add new fields.
-    """
     _inherit = 'pos.config'
 
     receipt_design = fields.Many2one('pos.receipt', string='Receipt Design',
@@ -37,5 +12,21 @@ class PosConfig(models.Model):
     logo = fields.Binary(related='company_id.logo', string='Logo',
                          readonly=False)
     is_custom_receipt = fields.Boolean(string='Is Custom Receipt',
-                                       help='Indicates the receipt  design is '
+                                       help='Indicates the receipt design is '
                                             'custom or not')
+
+    # ✅ Custom address fields for receipt (format per spreadsheet)
+    receipt_store_name   = fields.Char(string='Nama Toko di Struk',
+                                    help='Contoh: GMP Elektrik Lippo Cikarang')
+    receipt_company_name = fields.Char(string='Nama Perusahaan di Struk',
+                                    help='Contoh: PT GLOBAL MULTIPARTS')
+    receipt_street       = fields.Char(string='Alamat',
+                                    help='Contoh: Jl. Sriwijaya Ruko Olimpic Blok A.8 Cibatu')
+    receipt_city_zip     = fields.Char(string='Kota & Kode Pos',
+                                    help='Contoh: Lippo Cikarang 17550')
+    receipt_phone        = fields.Char(string='Telepon (Tlp)',
+                                    help='Contoh: (021) 89841952')
+    receipt_wa           = fields.Char(string='WhatsApp (Wa)',
+                                    help='Contoh: 0877-7909-0747')
+    receipt_npwp         = fields.Char(string='NPWP',
+                                    help='Contoh: 021.100.283.7-413.000')

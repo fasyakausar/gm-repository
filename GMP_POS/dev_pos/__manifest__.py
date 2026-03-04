@@ -104,6 +104,7 @@
             'dev_pos/static/src/js/rounding_delete.js',
             'dev_pos/static/src/js/invoice_number.js',
             'dev_pos/static/src/js/notes_button.js',
+            'dev_pos/static/src/js/sale_order_list.js',
             # 'dev_pos/static/src/js/quantity_lock.js',
         ],
         'web.assets_backend': [

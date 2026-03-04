@@ -25,24 +25,17 @@ function removeSelectedDPLine(pos) {
 }
 
 // ============================================================
-// Patch Orderline: blokir set_quantity HANYA jika orderline
-// sudah ada di order (quantity sudah ter-set sebelumnya).
-// Saat pertama kali add product, quantity belum ter-set
-// sehingga set_quantity(1) harus tetap berjalan normal.
+// Patch Orderline
 // ============================================================
 patch(Orderline.prototype, {
     set_quantity(quantity, keep_price) {
         if (this.product?.gm_is_dp) {
-            // Izinkan jika ini adalah set_quantity pertama kali
-            // (quantity belum ada / masih undefined / 0)
-            // Tandanya: this.quantity belum ter-assign atau masih 0
             const alreadyHasQty = this.quantity !== undefined && this.quantity !== 0;
             if (alreadyHasQty) {
-                console.warn("[gm_is_dp] set_quantity BLOCKED (already has qty):", this.product?.display_name, "current:", this.quantity, "new:", quantity);
+                console.warn("[gm_is_dp] set_quantity BLOCKED:", this.product?.display_name, "current:", this.quantity, "new:", quantity);
                 return false;
             }
-            // Pertama kali set → izinkan (ini dari add_product)
-            console.log("[gm_is_dp] set_quantity ALLOWED (initial set):", this.product?.display_name, "qty:", quantity);
+            console.log("[gm_is_dp] set_quantity ALLOWED (initial):", this.product?.display_name, "qty:", quantity);
         }
         return super.set_quantity(quantity, keep_price);
     },
@@ -72,23 +65,44 @@ patch(ProductScreen.prototype, {
 
     setup() {
         super.setup();
-        this._originalKeydownHandler = this._onKeyDown?.bind(this);
+
+        // ✅ Override triggerAtInput setelah super.setup() selesai
+        // Ini menimpa binding asli Odoo sehingga updateSelectedOrderline
+        // versi patch kita yang akan dipanggil
+        this.numberBuffer.use({
+            triggerAtInput: (...args) => {
+                if (!this.pos.tempScreenIsShown) {
+                    this.updateSelectedOrderline(...args);
+                }
+            },
+            useWithBarcode: true,
+        });
     },
 
     async validateManagerAccess(mode, product = null) {
         const config = this.pos.config || {};
+
+        console.log("🔍 validateManagerAccess:", {
+            mode,
+            manager_validation: config.manager_validation,
+            validate_price_change: config.validate_price_change,
+            validate_add_remove_quantity: config.validate_add_remove_quantity,
+            validate_discount: config.validate_discount,
+            validate_order_line_deletion: config.validate_order_line_deletion,
+            product_name: product?.display_name,
+        });
+
         const restrictedModes = {
             quantity: "validate_add_remove_quantity",
             discount: "validate_discount",
             price: "validate_price_change",
             delete: "validate_order_line_deletion",
         };
+
         if (!config.manager_validation || !restrictedModes[mode] || !config[restrictedModes[mode]]) {
             return true;
         }
-        if (mode === "price") {
-            if (!product?.is_fixed_price) return true;
-        }
+
         const { confirmed } = await this.popup.add(CustomNumpadPopUp, {
             title: _t("Enter Manager PIN"),
             body: _t("Please enter the manager's PIN to proceed."),
@@ -97,105 +111,26 @@ patch(ProductScreen.prototype, {
     },
 
     getProductFromSelectedLine() {
-        const selectedLine = this.currentOrder.get_selected_orderline();
+        const selectedLine = this.currentOrder?.get_selected_orderline();
         if (!selectedLine) return null;
-        if (selectedLine.product) return selectedLine.product;
-        if (typeof selectedLine.get_product === "function") return selectedLine.get_product();
-        if (selectedLine.product_id) {
-            const productId = Array.isArray(selectedLine.product_id)
-                ? selectedLine.product_id[0]
-                : selectedLine.product_id;
-            return this.pos.db.get_product_by_id(productId);
-        }
-        return null;
+        return selectedLine.product || null;
     },
 
     // ============================================================
-    // Keyboard fisik
+    // updateSelectedOrderline: titik intercept utama
     // ============================================================
-    async _onKeyDown(ev) {
-        const key = ev.key;
-        const mode = this.pos.numpadMode;
+    async updateSelectedOrderline({ buffer, key }) {
+        console.log("🔴 updateSelectedOrderline CALLED", { buffer, key, mode: this.pos.numpadMode });
 
+        const mode = this.pos.numpadMode;
+        const selectedLine = this.currentOrder?.get_selected_orderline();
+
+        // ── Guard: DP line ────────────────────────────────────────
         if (mode === "quantity" && isSelectedLineDP(this.pos)) {
-            ev.preventDefault();
-            ev.stopPropagation();
-
-            if (key === "Backspace") {
-                // ✅ Hapus line langsung
-                this.numberBuffer.reset();
-                removeSelectedDPLine(this.pos);
-            } else {
-                // ❌ Blokir angka
-                this.popup.add(ErrorPopup, {
-                    title: _t("Tidak Dapat Mengubah Quantity"),
-                    body: _t("Quantity item Down Payment tidak dapat diubah."),
-                });
-            }
-            return;
-        }
-
-        if (key === "Backspace") {
-            const isValidated = await this.validateManagerAccess("delete");
-            if (!isValidated) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                return;
-            }
-        }
-
-        if (/^[0-9.]$/.test(key) && ["quantity", "discount", "price"].includes(mode)) {
-            const product = this.getProductFromSelectedLine();
-            const isValidated = await this.validateManagerAccess(mode, product);
-            if (!isValidated) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                return;
-            }
-        }
-
-        if (key === "Enter" && ["quantity", "discount", "price"].includes(mode)) {
-            const product = this.getProductFromSelectedLine();
-            const isValidated = await this.validateManagerAccess(mode, product);
-            if (!isValidated) {
-                ev.preventDefault();
-                ev.stopPropagation();
-                return;
-            }
-        }
-
-        if (this._originalKeydownHandler) {
-            return this._originalKeydownHandler(ev);
-        } else if (super._onKeyDown) {
-            return super._onKeyDown(ev);
-        }
-    },
-
-    // ============================================================
-    // Numpad UI
-    // ============================================================
-    async onNumpadClick(buttonValue) {
-        const keyAlias = { Backspace: "⌫" };
-        const resolvedKey = keyAlias[buttonValue] || buttonValue;
-        const numberKeys = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "+/-", "⌫"];
-        const mode = this.pos.numpadMode;
-
-        // Mode switching
-        if (["quantity", "discount", "price"].includes(resolvedKey)) {
-            this.numberBuffer.capture();
             this.numberBuffer.reset();
-            this.pos.numpadMode = resolvedKey;
-            return;
-        }
-
-        if (mode === "quantity" && isSelectedLineDP(this.pos)) {
-            if (resolvedKey === "⌫") {
-                // ✅ Hapus line langsung
-                this.numberBuffer.reset();
+            if (key === "Backspace") {
                 removeSelectedDPLine(this.pos);
             } else {
-                // ❌ Blokir angka dan +/-
-                this.numberBuffer.reset();
                 this.popup.add(ErrorPopup, {
                     title: _t("Tidak Dapat Mengubah Quantity"),
                     body: _t("Quantity item Down Payment tidak dapat diubah."),
@@ -204,20 +139,29 @@ patch(ProductScreen.prototype, {
             return;
         }
 
-        // Handle ⌫ normal
-        if (resolvedKey === "⌫") {
+        // ── Guard: Backspace / delete line ───────────────────────
+        if (key === "Backspace" && (buffer === null || buffer === "")) {
             const isValidated = await this.validateManagerAccess("delete");
-            if (!isValidated) return;
-            this.numberBuffer.sendKey("Backspace");
-            return;
+            if (!isValidated) {
+                this.numberBuffer.reset();
+                return;
+            }
+            return super.updateSelectedOrderline({ buffer, key });
         }
 
-        // Handle angka normal
-        if (numberKeys.includes(resolvedKey)) {
-            const selectedLine = this.currentOrder.get_selected_orderline();
+        // ── Guard: input angka untuk quantity / discount / price ──
+        if (["quantity", "discount", "price"].includes(mode) && key !== "Backspace") {
             const product = this.getProductFromSelectedLine();
             const isValidated = await this.validateManagerAccess(mode, product);
-            if (!isValidated) return;
+            if (!isValidated) {
+                this.numberBuffer.reset();
+                return;
+            }
+
+            if (!selectedLine) {
+                this.numberBuffer.reset();
+                return;
+            }
 
             try {
                 const result = await this.popup.add(InputNumberPopUpQty, {
@@ -226,10 +170,16 @@ patch(ProductScreen.prototype, {
                     contextType: mode,
                 });
 
-                if (!result || result.input === undefined || result.input === null) return;
+                if (!result || result.input === undefined || result.input === null) {
+                    this.numberBuffer.reset();
+                    return;
+                }
+
                 const value = parseFloat(result.input);
-                if (isNaN(value) || value < 0) return;
-                if (!selectedLine) return;
+                if (isNaN(value) || value < 0) {
+                    this.numberBuffer.reset();
+                    return;
+                }
 
                 if (mode === "quantity") {
                     if (value === 0) {
@@ -245,40 +195,29 @@ patch(ProductScreen.prototype, {
                 }
 
                 this.numberBuffer.reset();
+                return;
             } catch (error) {
-                console.error("Error in onNumpadClick:", error);
+                console.error("❌ Error in updateSelectedOrderline popup:", error);
+                this.numberBuffer.reset();
+                return;
             }
-            return;
         }
 
-        if (super.onNumpadClick) {
-            return super.onNumpadClick(resolvedKey);
-        }
+        // ── Default: jalankan logic asli Odoo ────────────────────
+        return super.updateSelectedOrderline({ buffer, key });
     },
 
     // ============================================================
-    // _setValue: safety net
+    // _setValue: safety net untuk DP line
     // ============================================================
     _setValue(val) {
         const { numpadMode } = this.pos;
 
         if (numpadMode === "quantity" && isSelectedLineDP(this.pos)) {
-            // Semua sudah dihandle di onNumpadClick/_onKeyDown
             this.numberBuffer.reset();
             return;
         }
 
         return super._setValue(val);
-    },
-
-    // ============================================================
-    // updateSelectedOrderline: safety net
-    // ============================================================
-    async updateSelectedOrderline({ buffer, key }) {
-        if (this.pos.numpadMode === "quantity" && isSelectedLineDP(this.pos)) {
-            this.numberBuffer.reset();
-            return;
-        }
-        return super.updateSelectedOrderline({ buffer, key });
     },
 });

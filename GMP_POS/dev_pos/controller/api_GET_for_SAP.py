@@ -2575,6 +2575,7 @@ class InvoiceOrder(http.Controller):
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
                 ('gm_is_dp', '=', False),
+                ('partner_id.gm_bp_type', '=', 'customer')
             ]
 
             pageSize = int(pageSize) if pageSize else 200
@@ -2633,9 +2634,12 @@ class InvoiceOrder(http.Controller):
                     'doc_num': order.name,
                     'ref_num': order.ref or "",
                     'invoice_ref': order.gm_invoice_e_commerce,
+                    'po_customer': order.gm_po_customer,
+                    'nota_manual': order.gm_nota_manual,
                     'customer_id': order.partner_id.id,
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code or "",
+                    'bp_type': order.partner_id.gm_bp_type,
                     'location_id': location_id,  # ✅ ID dari stock.location
                     'location': location_name,   # ✅ Nama dari stock.location
                     'is_integrated': order.is_integrated,
@@ -2675,6 +2679,7 @@ class InvoiceOrder(http.Controller):
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
                 ('gm_is_dp', '=', False),  # TAMBAHAN: Pastikan invoice bukan DP
+                ('partner_id.gm_bp_type', '=', 'customer')
             ], limit=1)
 
             if not invoicing:
@@ -3068,10 +3073,10 @@ class CrediNoteAPI(http.Controller):
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = [('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False)]  # Initialize domain here
+            domain = [('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('partner_id.gm_bp_type', '=', 'customer')]  # Initialize domain here
 
             if q:
-                domain += [('name', 'ilike', str(q)), ('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False)]
+                domain += [('name', 'ilike', str(q)), ('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('partner_id.gm_bp_type', '=', 'customer')]
 
             if company_id is not None:
                 try:
@@ -3082,7 +3087,7 @@ class CrediNoteAPI(http.Controller):
 
             if not createdDateFrom and not createdDateTo and not q and is_integrated is None:
                 # If no parameters are provided, fetch all records
-                invoice_accounting = request.env['account.move'].sudo().search([('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False)])
+                invoice_accounting = request.env['account.move'].sudo().search([('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('partner_id.gm_bp_type', '=', 'customer')])
                 total_records = len(invoice_accounting)
             else:
                 if createdDateFrom or createdDateTo:
@@ -3091,11 +3096,11 @@ class CrediNoteAPI(http.Controller):
 
                     domain += [('create_date', '>=', created_date_from.strftime(date_format)),
                                 ('create_date', '<=', created_date_to.strftime(date_format)),
-                                ('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False)]
+                                ('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('partner_id.gm_bp_type', '=', 'customer')]
 
                 if is_integrated is not None:
                     is_integrated_bool = str(is_integrated).lower() == 'true'
-                    domain += [('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('is_integrated', '=', is_integrated_bool)]
+                    domain += [('state', '=', 'posted'), ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']), ('move_type', '=', 'out_refund'), ('partner_id.customer_code', '!=', False), ('partner_id.gm_bp_type', '=', 'customer'), ('is_integrated', '=', is_integrated_bool)]
 
                 pageSize = int(pageSize) if pageSize else 200
 
@@ -3136,9 +3141,13 @@ class CrediNoteAPI(http.Controller):
                     'id': order.id,
                     'doc_num': order.name,
                     'ref_num': order.ref.split(": ")[-1] if order.ref else None,
+                    'invoice_ref': order.gm_invoice_e_commerce,
+                    'po_customer': order.gm_po_customer,
+                    'nota_manual': order.gm_nota_manual,
                     'customer_id': order.partner_id.id,
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code,
+                    'bp_type': order.partner_id.gm_bp_type,
                     'location_id': location_id or int(-1),
                     'location': location,
                     'is_integrated': order.is_integrated,
@@ -3178,7 +3187,8 @@ class CrediNoteAPI(http.Controller):
                 ('state', '=', 'posted'),
                 ('payment_state', 'in', ['paid', 'in_payment', 'reversed', 'partial']),
                 ('move_type', '=', 'out_refund'),
-                ('partner_id.customer_code', '!=', False)
+                ('partner_id.customer_code', '!=', False),
+                ('partner_id.gm_bp_type', '=', 'customer')
             ], limit=1)
 
             if not invoicing:

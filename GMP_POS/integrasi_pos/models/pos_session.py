@@ -10,34 +10,50 @@ class ReportSaleDetailsInherit(models.AbstractModel):
 
     def get_sale_details(self, date_start=False, date_stop=False, config_ids=False, session_ids=False):
         """
-        Override untuk:
-        1. Menghilangkan SEMUA cash moves dari closing popup
-        2. Menambahkan total modal ke expected cash amount
+        Override: filter cash_moves untuk menghilangkan baris
+        "Cash difference observed during the counting (Profit) - opening"
+        yang muncul karena balance_start di-set manual.
+        Nilai counted, final_count, money_difference tetap dari super().
         """
-        # Panggil bawaan dulu
-        result = super().get_sale_details(date_start, date_stop, config_ids, session_ids)  # ✅ FIXED
-        
-        sessions = self.env["pos.session"].browse(session_ids) if session_ids else []
-        
-        for session in sessions:
-            # Ambil total modal semua shift dalam session
-            total_modal = sum(
-                self.env["end.shift"].search([
-                    ("session_id", "=", session.id)
-                ]).mapped("modal")
+        result = super().get_sale_details(date_start, date_stop, config_ids, session_ids)
+
+        # ── DEBUG: log semua cash_moves dari super() ─────────────────────────
+        for payment in result.get("payments", []):
+            if "cash_moves" in payment:
+                _logger.info(
+                    f"[ReportSaleDetails] payment='{payment.get('name', '')}' "
+                    f"cash='{payment.get('cash', '')}' "
+                    f"final_count={payment.get('final_count')} "
+                    f"money_counted={payment.get('money_counted')} "
+                    f"cash_moves={payment.get('cash_moves')}"
+                )
+
+        # Hilangkan cash_move yang merupakan "difference - opening" saja.
+        # Baris ini muncul karena Odoo membuat entry selisih saat balance_start
+        # di-set berbeda dari sesi sebelumnya.
+        # JANGAN filter "Cash Opening" — itu adalah baris saldo awal yang valid.
+        def _is_opening_difference(name):
+            name_lower = name.lower()
+            # Hanya filter jika mengandung "difference" DAN "opening"
+            return (
+                "difference" in name_lower
+                and "opening" in name_lower
             )
 
-            # ✅ KOSONGKAN SEMUA CASH MOVES & UPDATE EXPECTED
-            for payment in result.get("payments", []):
-                if payment.get("session") == session.id:
-                    # Kosongkan semua cash moves
-                    payment["cash_moves"] = []
-                    
-                    # Update final_count untuk cash dengan modal
-                    if payment.get("cash"):
-                        payment["final_count"] = (payment.get("final_count") or 0.0) + total_modal
-                        payment["money_difference"] = (payment.get("money_counted") or 0.0) - payment["final_count"]
-        
+        for payment in result.get("payments", []):
+            if "cash_moves" in payment and isinstance(payment["cash_moves"], list):
+                before = len(payment["cash_moves"])
+                payment["cash_moves"] = [
+                    move for move in payment["cash_moves"]
+                    if not _is_opening_difference(str(move.get("name", "")))
+                ]
+                after = len(payment["cash_moves"])
+                if before != after:
+                    _logger.info(
+                        f"[ReportSaleDetails] Filtered {before - after} 'opening difference' "
+                        f"cash_move(s) from payment '{payment.get('name', '')}'"
+                    )
+
         return result
 
 class PosSession(models.Model):
@@ -51,201 +67,124 @@ class PosSession(models.Model):
 
     @api.onchange('vit_edit_start_balance')
     def _onchange_vit_edit_start_balance(self):
-        """
-        Auto-update cash_register_balance_start when vit_edit_start_balance changes
-        Jika sudah ada nilai, akan dijumlahkan
-        """
         if self.vit_edit_start_balance:
             try:
-                # Convert string to float
                 new_value = float(self.vit_edit_start_balance.replace(',', '.'))
-                
-                # Get current value (default 0 if not set)
                 current_value = self.cash_register_balance_start or 0.0
-                
-                # Add new value to existing value
                 total_value = current_value + new_value
-                
                 self.cash_register_balance_start = total_value
-                
-                _logger.info(
-                    f"💰 balance_start updated: {current_value} + {new_value} = {total_value} "
-                    f"for session {self.name}"
-                )
+                _logger.info(f"💰 balance_start updated: {current_value} + {new_value} = {total_value} for session {self.name}")
             except ValueError:
-                # Handle invalid input
-                _logger.warning(
-                    f"⚠️ Invalid value for start balance: {self.vit_edit_start_balance}"
-                )
-                # Optionally show warning to user
-                return {
-                    'warning': {
-                        'title': 'Invalid Input',
-                        'message': 'Please enter a valid number for Start Balance'
-                    }
-                }
+                _logger.warning(f"⚠️ Invalid value for start balance: {self.vit_edit_start_balance}")
+                return {'warning': {'title': 'Invalid Input', 'message': 'Please enter a valid number for Start Balance'}}
 
     @api.onchange('vit_edit_end_balance')
     def _onchange_vit_edit_end_balance(self):
-        """
-        Auto-update cash_register_balance_end_real when vit_edit_end_balance changes
-        Jika sudah ada nilai, akan dijumlahkan
-        """
         if self.vit_edit_end_balance:
             try:
-                # Convert string to float
                 new_value = float(self.vit_edit_end_balance.replace(',', '.'))
-                
-                # Get current value (default 0 if not set)
                 current_value = self.cash_register_balance_end_real or 0.0
-                
-                # Add new value to existing value
                 total_value = current_value + new_value
-                
                 self.cash_register_balance_end_real = total_value
-                
-                _logger.info(
-                    f"💰 balance_end_real updated: {current_value} + {new_value} = {total_value} "
-                    f"for session {self.name}"
-                )
+                _logger.info(f"💰 balance_end_real updated: {current_value} + {new_value} = {total_value} for session {self.name}")
             except ValueError:
-                # Handle invalid input
-                _logger.warning(
-                    f"⚠️ Invalid value for end balance: {self.vit_edit_end_balance}"
-                )
-                # Optionally show warning to user
-                return {
-                    'warning': {
-                        'title': 'Invalid Input',
-                        'message': 'Please enter a valid number for End Balance'
-                    }
-                }
+                _logger.warning(f"⚠️ Invalid value for end balance: {self.vit_edit_end_balance}")
+                return {'warning': {'title': 'Invalid Input', 'message': 'Please enter a valid number for End Balance'}}
 
     def get_closing_control_data(self):
-        """
-        Override untuk menambahkan total_modal ke response
-        dan update opening balance
-        """
-        result = super().get_closing_control_data()  # ✅ FIXED
-        
-        # Calculate total modal from all end.shift in this session
+        result = super().get_closing_control_data()
         total_modal = sum(
-            self.env['end.shift'].search([
-                ('session_id', '=', self.id)
-            ]).mapped('modal')
+            self.env['end.shift'].search([('session_id', '=', self.id)]).mapped('modal')
         )
-        
-        # Add total_modal to result
         result['total_modal'] = total_modal
-        
-        # Update cash details if cash control is enabled
         if self.config_id.cash_control and result.get('default_cash_details'):
-            # IMPORTANT: Update opening to show total modal
             result['default_cash_details']['opening'] = total_modal
-            
-            # Recalculate expected amount
             cash_payment = result['default_cash_details'].get('payment_amount', 0)
             cash_moves = sum([move['amount'] for move in result['default_cash_details'].get('moves', [])])
-            
-            # Expected = Total Modal + Cash Payment + Cash Moves
             result['default_cash_details']['amount'] = total_modal + cash_payment + cash_moves
-            
-            # Add info about modal calculation
             result['default_cash_details']['modal_info'] = {
                 'total_modal': total_modal,
                 'cash_payments': cash_payment,
                 'cash_moves': cash_moves,
-                'expected_total': total_modal + cash_payment + cash_moves
+                'expected_total': total_modal + cash_payment + cash_moves,
             }
-        
         return result
 
     def post_closing_cash_details(self, counted_cash):
         """
-        Override untuk update cash_register_balance_start dengan total modal
-        saat close session dari UI
+        Dipanggil dari UI saat user klik Close.
+        counted_cash = nilai yang diinput user di field Counted.
+        HANYA update cash_register_balance_end_real.
         """
         self.ensure_one()
-        
+
+        # ── LOG AWAL ────────────────────────────────────────────────────
+        _logger.info(
+            f"🔍 post_closing_cash_details CALLED: session={self.name}, "
+            f"counted_cash={counted_cash} (type={type(counted_cash).__name__}), "
+            f"balance_end_real BEFORE={self.cash_register_balance_end_real}"
+        )
+
         check_closing_session = self._cannot_close_session()
         if check_closing_session:
+            _logger.warning(f"⚠️ _cannot_close_session returned: {check_closing_session}")
             return check_closing_session
 
         if not self.cash_journal_id:
             raise UserError("There is no cash register in this session.")
 
-        # ✅ Hitung total modal dari end.shift
-        total_modal = sum(
-            self.env['end.shift'].search([
-                ('session_id', '=', self.id)
-            ]).mapped('modal')
-        )
+        # Pastikan counted_cash adalah float valid
+        safe_counted = float(counted_cash) if counted_cash else 0.0
+        self.cash_register_balance_end_real = safe_counted
 
-        # ✅ Update balance_start dengan total modal (EDITABLE)
-        self.cash_register_balance_start = total_modal
-        
-        # ✅ Update balance_end_real dengan counted_cash dari UI (EDITABLE)
-        self.cash_register_balance_end_real = counted_cash
-
+        # ── LOG AKHIR ────────────────────────────────────────────────────
         _logger.info(
-            f"✅ Session {self.name}: balance_start set to {total_modal}, "
-            f"balance_end_real set to {counted_cash}"
+            f"✅ post_closing_cash_details DONE: session={self.name}, "
+            f"safe_counted={safe_counted}, "
+            f"balance_end_real AFTER={self.cash_register_balance_end_real}, "
+            f"balance_start={self.cash_register_balance_start}"
         )
-
         return {'successful': True}
 
     def update_closing_balances(self, balance_start=None, balance_end_real=None):
-        """
-        Method baru untuk update manual balance_start dan balance_end_real
-        Dipanggil dari UI atau backend saat user mengedit nilai
-        
-        :param balance_start: float - New balance start value
-        :param balance_end_real: float - New balance end real value
-        :return: True if successful
-        """
         self.ensure_one()
-        
         if self.state not in ['closing_control', 'opened']:
             raise UserError("Cannot update balances when session is not in closing state.")
-        
         values = {}
         if balance_start is not None:
             values['cash_register_balance_start'] = balance_start
-            _logger.info(f"💰 Updating balance_start to {balance_start} for session {self.name}")
-            
         if balance_end_real is not None:
             values['cash_register_balance_end_real'] = balance_end_real
-            _logger.info(f"💰 Updating balance_end_real to {balance_end_real} for session {self.name}")
-            
         if values:
             self.write(values)
-        
         return True
 
     def action_pos_session_closing_control(self, balancing_account=False, amount_to_balance=0, bank_payment_method_diffs=None):
         """
-        Override untuk otomatis set balance_start dengan total modal
-        saat transition ke closing_control state
+        Override saat transisi ke closing_control.
+        balance_start hanya di-set dari total_modal jika BELUM ada nilai
+        (yaitu saat pertama kali sesi dibuka tanpa input manual).
         """
         bank_payment_method_diffs = bank_payment_method_diffs or {}
-        
         for session in self:
-            # ✅ Hitung total modal sebelum closing
             total_modal = sum(
-                self.env['end.shift'].search([
-                    ('session_id', '=', session.id)
-                ]).mapped('modal')
+                self.env['end.shift'].search([('session_id', '=', session.id)]).mapped('modal')
             )
-            
-            # ✅ Update cash_register_balance_start dengan total modal
-            if session.config_id.cash_control and total_modal > 0:
+            # Hanya update jika cash_control aktif, total_modal > 0,
+            # DAN balance_start belum di-set secara manual (masih 0)
+            if (session.config_id.cash_control
+                    and total_modal > 0
+                    and not session.cash_register_balance_start):
                 session.cash_register_balance_start = total_modal
                 _logger.info(
-                    f"🔐 Session {session.name} closing: "
-                    f"balance_start auto-set to {total_modal}"
+                    f"🔐 Session {session.name}: balance_start auto-set to {total_modal}"
                 )
-        
-        return super().action_pos_session_closing_control(  # ✅ FIXED
+            else:
+                _logger.info(
+                    f"🔐 Session {session.name}: balance_start kept as "
+                    f"{session.cash_register_balance_start} (total_modal={total_modal})"
+                )
+        return super().action_pos_session_closing_control(
             balancing_account, amount_to_balance, bank_payment_method_diffs
         )
 

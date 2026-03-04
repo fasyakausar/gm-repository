@@ -7,6 +7,8 @@
         <field name="inherit_id" ref="point_of_sale.pos_config_view_form"/>
         <field name="arch" type="xml">
             <xpath expr="//setting[@id='other_devices']" position="after">
+
+                <!-- Custom Receipt Design -->
                 <setting title="Customize the POS receipts" string="Custom Receipt" help="Use custom receipt designs">
                     <field name="is_custom_receipt"/>
                     <div class="content-group mt16">
@@ -16,6 +18,49 @@
                         <field name="design_receipt" invisible="1"/>
                     </div>
                 </setting>
+
+                <!-- Receipt Address per POS -->
+                <setting string="Alamat Struk"
+                        help="Informasi yang ditampilkan di header struk untuk toko ini.">
+                    <div class="content-group">
+                        <div class="row mt8">
+                            <label for="receipt_store_name" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_store_name" class="col-lg-9"
+                                placeholder="GMP Elektrik Lippo Cikarang"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_company_name" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_company_name" class="col-lg-9"
+                                placeholder="PT GLOBAL MULTIPARTS"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_street" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_street" class="col-lg-9"
+                                placeholder="Jl. Sriwijaya Ruko Olimpic Blok A.8 Cibatu"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_city_zip" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_city_zip" class="col-lg-9"
+                                placeholder="Lippo Cikarang 17550"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_phone" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_phone" class="col-lg-9"
+                                placeholder="(021) 89841952"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_wa" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_wa" class="col-lg-9"
+                                placeholder="0877-7909-0747"/>
+                        </div>
+                        <div class="row mt4">
+                            <label for="receipt_npwp" class="col-lg-3 o_light_label"/>
+                            <field name="receipt_npwp" class="col-lg-9"
+                                placeholder="021.100.283.7-413.000"/>
+                        </div>
+                    </div>
+                </setting>
+
             </xpath>
         </field>
     </record>

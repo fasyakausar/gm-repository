@@ -34,7 +34,7 @@ class PosOrder(models.Model):
     
     def _order_fields(self, ui_order):
         res = super()._order_fields(ui_order)
-        res['gm_invoice_e_commerce'] = ui_order.get('gm_invoice_number', '')
+        res['gm_invoice_e_commerce'] = ui_order.get('gm_invoice_e_commerce', '')
         # ✅ NEW
         res['gm_po_customer']  = ui_order.get('gm_po_customer', '')
         res['gm_nota_manual']  = ui_order.get('gm_nota_manual', '')
