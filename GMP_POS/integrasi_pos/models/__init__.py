@@ -40,7 +40,7 @@ from . import end_shift
 # from . import account_account
 from . import inventory_counting
 # from . import transfer_request
-# from . import res_config_settings
+from . import res_config_settings
 # from . import partner_pin_code
 # from . import report_stock
 # from . import barcode_settings

@@ -1431,14 +1431,14 @@ class POSTMasterCustomer(http.Controller):
                 }
 
             env = request.env(user=request.env.ref('base.user_admin').id)
-            
+
             # Get all active companies
             companies = env['res.company'].sudo().search([('active', '=', True)])
             if not companies:
                 return {
-                    'status': "Failed", 
-                    'code': 404, 
-                    'message': "No active companies found."
+                    'status': 'Failed',
+                    'code': 404,
+                    'message': 'No active companies found.'
                 }
 
             # Check if customer group pricelist is enabled
@@ -1447,7 +1447,7 @@ class POSTMasterCustomer(http.Controller):
             # Get JSON data
             json_data = request.get_json_data()
             items = json_data.get('items', [])
-            
+
             if isinstance(items, dict):
                 items = [items]
             elif not isinstance(items, list):
@@ -1461,7 +1461,6 @@ class POSTMasterCustomer(http.Controller):
             updated = []
             failed = []
 
-            # ✅ Valid values untuk gm_bp_type
             VALID_BP_TYPES = ['vendor', 'customer']
 
             for data_item in items:
@@ -1472,16 +1471,13 @@ class POSTMasterCustomer(http.Controller):
                             'data': data_item,
                             'company_id': None,
                             'company_name': None,
-                            'message': "Missing customer_code",
+                            'message': 'Missing customer_code',
                             'id': None
                         })
                         continue
 
-                    # =====================================
-                    # ✅ VALIDASI gm_bp_type
-                    # =====================================
+                    # Validasi gm_bp_type
                     gm_bp_type = data_item.get('gm_bp_type', 'customer')
-
                     if gm_bp_type not in VALID_BP_TYPES:
                         failed.append({
                             'data': data_item,
@@ -1500,13 +1496,13 @@ class POSTMasterCustomer(http.Controller):
                                 'data': data_item,
                                 'company_id': None,
                                 'company_name': None,
-                                'message': "vit_customer_group is required when Customer Group Pricelist is enabled",
+                                'message': 'vit_customer_group is required when Customer Group Pricelist is enabled',
                                 'id': None
                             })
                             continue
-                        
-                        customer_group = env['customer.group'].sudo().browse(vit_customer_group)
-                        if not customer_group.exists():
+
+                        customer_group_check = env['customer.group'].sudo().browse(vit_customer_group)
+                        if not customer_group_check.exists():
                             failed.append({
                                 'data': data_item,
                                 'company_id': None,
@@ -1516,9 +1512,7 @@ class POSTMasterCustomer(http.Controller):
                             })
                             continue
 
-                    # =====================================
-                    # IS_INTEGRATED (Boolean validation)
-                    # =====================================
+                    # IS_INTEGRATED boolean validation
                     is_integrated = data_item.get('is_integrated', False)
                     if not isinstance(is_integrated, bool):
                         if isinstance(is_integrated, str):
@@ -1526,16 +1520,62 @@ class POSTMasterCustomer(http.Controller):
                         else:
                             is_integrated = bool(is_integrated)
 
+                    # Ambil raw pricelist value (bisa nama string atau integer ID)
+                    pricelist_raw = data_item.get('property_product_pricelist')
+
                     # Loop through all companies
                     for company in companies:
                         try:
+                            # Savepoint per company agar transaksi tidak mati total
+                            request.env.cr.execute("SAVEPOINT master_customer_sp")
+
+                            # ✅ FIX: Resolve pricelist PER COMPANY
+                            # Cari berdasarkan nama/ID yang cocok dengan company ini
+                            # Ini mencegah Access Error akibat multi-company record rule
+                            resolved_pricelist_id = None
+                            if pricelist_raw:
+                                try:
+                                    pricelist_id_int = int(pricelist_raw)
+                                    pricelist_domain = [
+                                        ('id', '=', pricelist_id_int),
+                                        '|',
+                                        ('company_id', '=', company.id),
+                                        ('company_id', '=', False)
+                                    ]
+                                except (ValueError, TypeError):
+                                    # String name: prioritas company ini, fallback shared
+                                    pricelist_domain = [
+                                        ('name', '=', pricelist_raw),
+                                        '|',
+                                        ('company_id', '=', company.id),
+                                        ('company_id', '=', False)
+                                    ]
+
+                                pricelist = env['product.pricelist'].sudo().search(
+                                    pricelist_domain,
+                                    order='company_id asc',  # company-specific lebih diutamakan
+                                    limit=1
+                                )
+
+                                if not pricelist:
+                                    request.env.cr.execute("ROLLBACK TO SAVEPOINT master_customer_sp")
+                                    failed.append({
+                                        'data': data_item,
+                                        'company_id': company.id,
+                                        'company_name': company.name,
+                                        'message': f"Pricelist '{pricelist_raw}' not found for company {company.name}",
+                                        'id': None
+                                    })
+                                    continue
+
+                                resolved_pricelist_id = pricelist.id
+
                             # Check existing customer
                             existing = env['res.partner'].sudo().search([
                                 ('customer_code', '=', customer_code),
                                 ('company_id', '=', company.id)
                             ], limit=1)
-                            
-                            # ✅ Prepare vals - pakai gm_bp_type, hapus customer_rank & supplier_rank
+
                             customer_vals = {
                                 'name': data_item.get('name'),
                                 'customer_code': customer_code,
@@ -1549,41 +1589,16 @@ class POSTMasterCustomer(http.Controller):
                                 'email': data_item.get('email'),
                                 'mobile': data_item.get('mobile'),
                                 'website': data_item.get('website'),
-
-                                # ✅ GANTI: pakai gm_bp_type
                                 'gm_bp_type': gm_bp_type,
-
-                                # IS_INTEGRATED FIELD
                                 'is_integrated': is_integrated,
-
-                                # TAX / PKP FIELDS
                                 'vat': data_item.get('tax_id'),
                                 'l10n_id_pkp': data_item.get('l10n_id_pkp', False),
-
                                 'company_id': company.id,
                             }
 
-                            # Pricelist check
-                            if 'property_product_pricelist' in data_item and data_item['property_product_pricelist']:
-                                pricelist_id = data_item['property_product_pricelist']
-                                pricelist = env['product.pricelist'].sudo().search([
-                                    ('id', '=', pricelist_id),
-                                    '|',
-                                    ('company_id', '=', company.id),
-                                    ('company_id', '=', False)
-                                ], limit=1)
-                                
-                                if pricelist:
-                                    customer_vals['property_product_pricelist'] = pricelist_id
-                                else:
-                                    failed.append({
-                                        'data': data_item,
-                                        'company_id': company.id,
-                                        'company_name': company.name,
-                                        'message': f"Pricelist ID {pricelist_id} not found",
-                                        'id': None
-                                    })
-                                    continue
+                            # Assign pricelist yang sudah di-resolve per company
+                            if resolved_pricelist_id:
+                                customer_vals['property_product_pricelist'] = resolved_pricelist_id
 
                             # Customer group if enabled
                             if group_pricelist_enabled and 'vit_customer_group' in data_item:
@@ -1593,21 +1608,23 @@ class POSTMasterCustomer(http.Controller):
                                     ('company_id', '=', company.id),
                                     ('company_id', '=', False)
                                 ], limit=1)
-                                
+
                                 if customer_group:
                                     customer_vals['vit_customer_group'] = data_item['vit_customer_group']
                                 else:
+                                    request.env.cr.execute("ROLLBACK TO SAVEPOINT master_customer_sp")
                                     failed.append({
                                         'data': data_item,
                                         'company_id': company.id,
                                         'company_name': company.name,
-                                        'message': f"Customer group ID {data_item['vit_customer_group']} not found",
+                                        'message': f"Customer group ID {data_item['vit_customer_group']} not found for company {company.name}",
                                         'id': None
                                     })
                                     continue
 
                             if existing:
                                 existing.write(customer_vals)
+                                request.env.cr.execute("RELEASE SAVEPOINT master_customer_sp")
                                 updated.append({
                                     'id': existing.id,
                                     'customer_code': existing.customer_code,
@@ -1615,7 +1632,6 @@ class POSTMasterCustomer(http.Controller):
                                     'email': existing.email,
                                     'company_id': company.id,
                                     'company_name': company.name,
-                                    # ✅ GANTI: pakai gm_bp_type
                                     'gm_bp_type': existing.gm_bp_type,
                                     'is_integrated': existing.is_integrated,
                                     'action': 'updated'
@@ -1623,6 +1639,7 @@ class POSTMasterCustomer(http.Controller):
                             else:
                                 customer_vals['create_uid'] = uid
                                 customer = env['res.partner'].sudo().create(customer_vals)
+                                request.env.cr.execute("RELEASE SAVEPOINT master_customer_sp")
                                 created.append({
                                     'id': customer.id,
                                     'customer_code': customer.customer_code,
@@ -1630,13 +1647,16 @@ class POSTMasterCustomer(http.Controller):
                                     'email': customer.email,
                                     'company_id': company.id,
                                     'company_name': company.name,
-                                    # ✅ GANTI: pakai gm_bp_type
                                     'gm_bp_type': customer.gm_bp_type,
                                     'is_integrated': customer.is_integrated,
                                     'action': 'created'
                                 })
 
                         except Exception as e:
+                            try:
+                                request.env.cr.execute("ROLLBACK TO SAVEPOINT master_customer_sp")
+                            except Exception:
+                                pass
                             failed.append({
                                 'data': data_item,
                                 'company_id': company.id,

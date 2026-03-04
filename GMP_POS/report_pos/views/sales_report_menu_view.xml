@@ -17,71 +17,11 @@
         parent="sales_report_menu"
         sequence="2"/>
 
-    <menuitem id="sales_report_spending"
-        name="Report Spending"
-        action="action_generate_sales_report_spending"
-        parent="sales_report_menu"
-        sequence="3"/>
-
-    <menuitem id="sales_report_hourly"
-        name="Report Hourly"
-        action="action_generate_sales_report_hourly"
-        parent="sales_report_menu"
-        sequence="4"/>
-
-    <menuitem id="sales_report_loyalty_customer"
-        name="Report Loyalty Customer"
-        action="action_generate_sales_report_loyalty_customer"
-        parent="sales_report_menu"
-        sequence="12"/>
-
-    <menuitem id="sales_report_history_loyalty_customer"
-        name="Report History Loyalty Customer"
-        action="action_generate_sales_report_history_loyalty_customer"
-        parent="sales_report_menu"
-        sequence="13"/>
-
-    <menuitem id="sales_report_hourly_category"
-        name="Report Hourly Category"
-        action="action_generate_sales_report_hourly_category"
-        parent="sales_report_menu"
-        sequence="5"/>
-
-    <menuitem id="sales_report_hourly_payment"
-        name="Report Hourly Payment"
-        action="action_generate_sales_report_hourly_payment"
-        parent="sales_report_menu"
-        sequence="6"/>
-
-    <menuitem id="sales_report_hourly_contribution_by_category"
-        name="Report Hourly Contribution by Category"
-        action="action_generate_sales_report_hourly_contribution_by_category"
-        parent="sales_report_menu"
-        sequence="7"/>
-
-    <menuitem id="sales_report_hourly_contribution_by_brand"
-        name="Report Hourly Contribution by Brand"
-        action="action_generate_sales_report_hourly_contribution_by_brand"
-        parent="sales_report_menu"
-        sequence="8"/>
-
     <menuitem id="sales_report_cashier_transaction"
         name="Report Cashier Transaction"
         action="action_generate_sales_report_cashier_transaction"
         parent="sales_report_menu"
         sequence="9"/>
-    
-    <menuitem id="sales_report_settlement_end_of_shift"
-        name="Report Settlement End of Shift"
-        action="action_generate_sales_report_settlement_end_of_shift"
-        parent="sales_report_menu"
-        sequence="10"/>
-    
-    <menuitem id="sales_report_settlement_end_of_day"
-        name="Report Settlement End of Day"
-        action="action_generate_sales_report_settlement_end_of_day"
-        parent="sales_report_menu"
-        sequence="11"/>
 
     <menuitem id="sales_report_stock_counting"
         name="Report Stock Counting"

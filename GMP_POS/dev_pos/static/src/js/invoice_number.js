@@ -12,14 +12,14 @@ import { _t } from "@web/core/l10n/translation";
 patch(Order.prototype, {
     setup() {
         super.setup(...arguments);
-        this.gm_invoice_number = this.gm_invoice_number || "";
+        this.gm_invoice_e_commerce = this.gm_invoice_e_commerce || "";
         this.gm_po_customer    = this.gm_po_customer    || "";
         this.gm_nota_manual    = this.gm_nota_manual    || "";
     },
 
     // --- GM Invoice E-Commerce ---
-    getGmInvoiceNumber()  { return this.gm_invoice_number || ""; },
-    setGmInvoiceNumber(v) { this.gm_invoice_number = v || ""; },
+    getGmInvoiceNumber()  { return this.gm_invoice_e_commerce || ""; },
+    setGmInvoiceNumber(v) { this.gm_invoice_e_commerce = v || ""; },
 
     // --- PO Customer ---
     getGmPoCustomer()     { return this.gm_po_customer || ""; },
@@ -33,7 +33,7 @@ patch(Order.prototype, {
     export_as_JSON() {
         const json = super.export_as_JSON(...arguments);
         // Use Python field names so Odoo ORM stores them directly
-        json.gm_invoice_e_commerce = this.gm_invoice_number || "";
+        json.gm_invoice_e_commerce = this.gm_invoice_e_commerce || "";
         json.gm_po_customer        = this.gm_po_customer    || "";
         json.gm_nota_manual        = this.gm_nota_manual    || "";
         return json;
@@ -41,7 +41,7 @@ patch(Order.prototype, {
 
     init_from_JSON(json) {
         super.init_from_JSON(...arguments);
-        this.gm_invoice_number = json.gm_invoice_e_commerce || "";
+        this.gm_invoice_e_commerce = json.gm_invoice_e_commerce || "";
         this.gm_po_customer    = json.gm_po_customer        || "";
         this.gm_nota_manual    = json.gm_nota_manual        || "";
     },

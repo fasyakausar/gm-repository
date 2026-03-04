@@ -12,26 +12,24 @@ patch(ProductScreen.prototype, {
     setup() {
         super.setup(...arguments);
         this.notification = useService("pos_notification");
-        
-        // Setup mobile pane state
-        if (!this.pos.mobile_pane) {
-            this.pos.mobile_pane = 'products'; // default to products view
-        }
-        
+
+        // ✅ REACTIVE STATE - wajib pakai useState agar OWL re-render saat berubah
+        this.mobileState = useState({ pane: "products" });
+
         useBarcodeReader({
             coupon: this._onCouponScan,
         });
     },
-    
-    // Method untuk set mobile pane
+
+    // ✅ Method setter - ubah reactive state, OWL otomatis re-render
     setMobilePane(pane) {
-        this.pos.mobile_pane = pane;
+        this.mobileState.pane = pane;
     },
-    
+
     _onCouponScan(code) {
         this.currentOrder.activateCode(code.base_code);
     },
-    
+
     async updateSelectedOrderline({ buffer, key }) {
         const selectedLine = this.currentOrder.get_selected_orderline();
         if (key === "-") {
@@ -67,7 +65,7 @@ patch(ProductScreen.prototype, {
         }
         return super.updateSelectedOrderline({ buffer, key });
     },
-    
+
     _setValue(val) {
         const selectedLine = this.currentOrder.get_selected_orderline();
         if (
@@ -102,16 +100,21 @@ patch(ProductScreen.prototype, {
             this.currentOrder._updateRewards();
         }
     },
-    
+
     async _barcodeProductAction(code) {
         await super._barcodeProductAction(code);
         this.currentOrder._updateRewards();
+        if (this.ui && this.ui.isSmall) {
+            this.mobileState.pane = "products";
+        }
     },
-    
 
     async _barcodeGS1Action(code) {
         await super._barcodeGS1Action(code);
         this.currentOrder._updateRewards();
+        if (this.ui && this.ui.isSmall) {
+            this.mobileState.pane = "products";
+        }
     },
 
     async _showDecreaseQuantityPopup() {
@@ -122,7 +125,6 @@ patch(ProductScreen.prototype, {
     },
 });
 
-// Patch template untuk menggunakan template yang sudah diperbaiki
 patch(ProductScreen, {
     template: "point_of_sale.ProductScreenPatched",
 });

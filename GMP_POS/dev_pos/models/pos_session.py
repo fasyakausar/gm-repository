@@ -11,22 +11,52 @@ class ReportSaleDetailsInherit(models.AbstractModel):
     _inherit = "report.point_of_sale.report_saledetails"
 
     def get_sale_details(self, date_start=False, date_stop=False, config_ids=False, session_ids=False):
-        # 🔹 Panggil bawaan dulu
-        res = super().get_sale_details(date_start, date_stop, config_ids, session_ids)
+        """
+        Override: filter cash_moves untuk menghilangkan baris
+        "Cash difference observed during the counting (Profit) - opening"
+        yang muncul karena balance_start di-set manual.
+        Nilai counted, final_count, money_difference tetap dari super().
+        """
+        result = super().get_sale_details(date_start, date_stop, config_ids, session_ids)
 
-        sessions = self.env["pos.session"].browse(session_ids) if session_ids else []
-        for session in sessions:
-            # 🔹 Ambil total modal semua shift dalam session
-            modal_total = sum(self.env["end.shift"].search([("session_id", "=", session.id)]).mapped("modal"))
+        # ── DEBUG: log semua cash_moves dari super() ─────────────────────────
+        for payment in result.get("payments", []):
+            if "cash_moves" in payment:
+                _logger.info(
+                    f"[ReportSaleDetails] payment='{payment.get('name', '')}' "
+                    f"cash='{payment.get('cash', '')}' "
+                    f"final_count={payment.get('final_count')} "
+                    f"money_counted={payment.get('money_counted')} "
+                    f"cash_moves={payment.get('cash_moves')}"
+                )
 
-            for payment in res.get("payments", []):
-                if payment.get("session") == session.id and payment.get("cash"):
-                    # final_count asli + modal_total
-                    payment["final_count"] = (payment.get("final_count") or 0.0) + modal_total
-                    # difference harus ikut update
-                    payment["money_difference"] = (payment.get("money_counted") or 0.0) - payment["final_count"]
+        # Hilangkan cash_move yang merupakan "difference - opening" saja.
+        # Baris ini muncul karena Odoo membuat entry selisih saat balance_start
+        # di-set berbeda dari sesi sebelumnya.
+        # JANGAN filter "Cash Opening" — itu adalah baris saldo awal yang valid.
+        def _is_opening_difference(name):
+            name_lower = name.lower()
+            # Hanya filter jika mengandung "difference" DAN "opening"
+            return (
+                "difference" in name_lower
+                and "opening" in name_lower
+            )
 
-        return res
+        for payment in result.get("payments", []):
+            if "cash_moves" in payment and isinstance(payment["cash_moves"], list):
+                before = len(payment["cash_moves"])
+                payment["cash_moves"] = [
+                    move for move in payment["cash_moves"]
+                    if not _is_opening_difference(str(move.get("name", "")))
+                ]
+                after = len(payment["cash_moves"])
+                if before != after:
+                    _logger.info(
+                        f"[ReportSaleDetails] Filtered {before - after} 'opening difference' "
+                        f"cash_move(s) from payment '{payment.get('name', '')}'"
+                    )
+
+        return result
 
 class PosSession(models.Model):
     _inherit = 'pos.session'

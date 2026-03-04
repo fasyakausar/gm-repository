@@ -87,7 +87,6 @@ patch(ClosePosPopup.prototype, {
             const newInput = input.cloneNode(true);
             input.parentNode.replaceChild(newInput, input);
 
-            // ✅ Format saat user mengetik (real-time)
             newInput.addEventListener("input", (ev) => {
                 const cursorPos = ev.target.selectionStart;
                 const oldLength = ev.target.value.length;
@@ -99,14 +98,11 @@ patch(ClosePosPopup.prototype, {
 
                 if (formatted !== ev.target.value) {
                     ev.target.value = formatted;
-
-                    // Pertahankan posisi cursor
                     const newLength = formatted.length;
                     const newCursor = cursorPos + (newLength - oldLength);
                     ev.target.setSelectionRange(newCursor, newCursor);
                 }
 
-                // ✅ Update state payment
                 const pmId = ev.target.dataset.pmId ||
                     ev.target.closest('[data-pm-id]')?.dataset.pmId;
 
@@ -115,7 +111,6 @@ patch(ClosePosPopup.prototype, {
                 }
             });
 
-            // ✅ Format saat blur (finalisasi)
             newInput.addEventListener("blur", (ev) => {
                 const formatted = formatWithSeparator(
                     ev.target.value,
@@ -131,7 +126,6 @@ patch(ClosePosPopup.prototype, {
                 }
             });
 
-            // ✅ Format nilai awal jika bukan 0
             if (newInput.value && newInput.value !== '0') {
                 setTimeout(() => {
                     const formatted = formatWithSeparator(
@@ -154,7 +148,6 @@ patch(ClosePosPopup.prototype, {
     getInitialState() {
         const initialState = super.getInitialState();
 
-        // ✅ Format nilai awal semua payment methods dengan separator
         if (this.props.default_cash_details) {
             const cashId = this.props.default_cash_details.id;
             if (initialState.payments[cashId]) {
@@ -181,8 +174,6 @@ patch(ClosePosPopup.prototype, {
 
     getDifference(paymentId) {
         const countedStr = this.state.payments[paymentId]?.counted || "0";
-
-        // ✅ Parse formatted value sebelum hitung selisih
         const counted = parseFormattedValue(countedStr, this.env.utils.formatCurrency);
 
         let expectedAmount = 0;
@@ -196,10 +187,41 @@ patch(ClosePosPopup.prototype, {
         return counted - expectedAmount;
     },
 
+    /**
+     * Ambil counted cash dari DOM secara langsung sebagai fallback,
+     * karena state.payments mungkin tidak ter-update ketika input di-clone.
+     */
+    _getCountedCashFromDOM() {
+        const popup = document.querySelector(".close-pos-popup");
+        if (!popup) return null;
+
+        // Cari input pertama yang visible (input cash/counted)
+        const inputs = popup.querySelectorAll("input");
+        for (const input of inputs) {
+            const val = input.value;
+            if (val && val !== "0" && val !== "") {
+                const parsed = parseFormattedValue(val, this.env.utils.formatCurrency);
+                if (parsed > 0) {
+                    console.log("[ClosingPopup] counted cash from DOM input:", parsed);
+                    return parsed;
+                }
+            }
+        }
+        return null;
+    },
+
     async closeSession() {
+        // ── DEBUG: log state payments sebelum parse ───────────────────────────
+        console.log("[ClosingPopup] state.payments BEFORE parse:",
+            JSON.parse(JSON.stringify(this.state.payments))
+        );
+        console.log("[ClosingPopup] default_cash_details:",
+            this.props.default_cash_details
+        );
+
         // ✅ Parse semua formatted value ke numeric sebelum dikirim ke backend
         Object.keys(this.state.payments).forEach((paymentId) => {
-            if (this.state.payments[paymentId]?.counted) {
+            if (this.state.payments[paymentId]?.counted !== undefined) {
                 const numeric = parseFormattedValue(
                     this.state.payments[paymentId].counted,
                     this.env.utils.formatCurrency
@@ -208,15 +230,40 @@ patch(ClosePosPopup.prototype, {
             }
         });
 
+        // ── DEBUG: log state payments setelah parse ───────────────────────────
+        console.log("[ClosingPopup] state.payments AFTER parse:",
+            JSON.parse(JSON.stringify(this.state.payments))
+        );
+
         this.customerDisplay?.update({ closeUI: true });
 
         const syncSuccess = await this.pos.push_orders_with_closing_popup();
         if (!syncSuccess) return;
 
         if (this.pos.config.cash_control && this.props.default_cash_details) {
-            const countedCash = parseFloat(
-                this.state.payments[this.props.default_cash_details.id]?.counted || "0"
+            const cashId = this.props.default_cash_details.id;
+
+            // ── Cara 1: ambil dari state.payments ────────────────────────────
+            let countedCash = parseFloat(
+                this.state.payments[cashId]?.counted || "0"
             );
+
+            // ── Cara 2: fallback dari DOM jika state = 0 ─────────────────────
+            // Ini terjadi karena input di-clone di _setupInputFormatting,
+            // sehingga event listener baru tidak ter-bind ke state Owl
+            if (!countedCash || countedCash === 0) {
+                const domValue = this._getCountedCashFromDOM();
+                if (domValue && domValue > 0) {
+                    countedCash = domValue;
+                    console.log("[ClosingPopup] ⚠️ state=0, using DOM value:", countedCash);
+                }
+            }
+
+            console.log("[ClosingPopup] Final countedCash to send:", countedCash,
+                "| cashId:", cashId,
+                "| state.payments[cashId]:", this.state.payments[cashId]
+            );
+
             const response = await this.orm.call(
                 "pos.session",
                 "post_closing_cash_details",
