@@ -2,6 +2,7 @@ import logging
 from datetime import datetime, timedelta
 from odoo import models, fields, api
 from odoo.exceptions import UserError
+import traceback
 
 _logger = logging.getLogger(__name__)
 
@@ -746,38 +747,25 @@ class PosSession(models.Model):
     def _pos_ui_product_product(self, params):
         return self._get_pos_ui_product_product(params)
 
-    import logging
-import traceback
-from odoo import models, fields, api
-
-_logger = logging.getLogger(__name__)
-
-class PosSession(models.Model):
-    _inherit = 'pos.session'
-
     def _loader_params_res_partner(self):
-        """
-        Override untuk memastikan ALL partners ter-load dengan proper domain
-        dan FORCE INCLUDE default customer
-        """
-        # ✅ Filter hanya customer (gm_bp_type = 'customer')
         domain = [
             ('active', '=', True),
             ('gm_bp_type', '=', 'customer'),
         ]
-        
-        _logger.info(f"🔍 Base partner domain: {domain}")
-        
-        # ✅ FORCE INCLUDE: Pastikan default customer SELALU ter-load
+
+        _logger.info(f"🔍 _loader_params_res_partner CALLED, domain={domain}")  # ← tambah ini
+
         if self.config_id.default_partner_id:
             default_partner_id = self.config_id.default_partner_id.id
-            default_partner_name = self.config_id.default_partner_id.name
-            _logger.info(f"🎯 Force including default customer: '{default_partner_name}' (ID: {default_partner_id})")
-            
-            # Add OR condition untuk default partner
-            domain = ['|', ('id', '=', default_partner_id), '&'] + domain
-            _logger.info(f"🔍 Modified domain: {domain}")
-        
+            domain = [
+                '|',
+                ('id', '=', default_partner_id),
+                '&',
+                ('active', '=', True),
+                ('gm_bp_type', '=', 'customer'),
+            ]
+            _logger.info(f"🔍 Modified domain with default_partner: {domain}")  # ← dan ini
+
         return {
             'search_params': {
                 'domain': domain,
@@ -786,7 +774,7 @@ class PosSession(models.Model):
                     'vat', 'lang', 'phone', 'zip', 'mobile', 'email',
                     'barcode', 'write_date', 'property_account_position_id',
                     'property_product_pricelist', 'parent_name', 'category_id',
-                    'vit_customer_group',
+                    'vit_customer_group', 'gm_bp_type',
                 ],
                 'limit': 10000,
                 'order': 'name ASC',
@@ -1156,4 +1144,5 @@ class PosSession(models.Model):
             return []
 
     def _pos_ui_loyalty_program_schedule(self, params):
+        
         return self._get_pos_ui_loyalty_program_schedule(params)

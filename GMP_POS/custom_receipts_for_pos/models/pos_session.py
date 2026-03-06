@@ -32,10 +32,11 @@ class PosSession(models.Model):
             fields=['name', 'user_id'],
         )
 
-        # ✅ Inject custom address fields dari config_id langsung
-        # Tidak menyentuh struktur res['pos.config'] agar tidak konflik
         config = self.config_id
+
+        # ✅ Inject custom address fields + logo + font + bold settings
         res['pos_receipt_address'] = {
+            # ── address ──────────────────────────────────────────────────────
             'receipt_store_name':   config.receipt_store_name   or '',
             'receipt_company_name': config.receipt_company_name or '',
             'receipt_street':       config.receipt_street       or '',
@@ -43,6 +44,19 @@ class PosSession(models.Model):
             'receipt_phone':        config.receipt_phone        or '',
             'receipt_wa':           config.receipt_wa           or '',
             'receipt_npwp':         config.receipt_npwp         or '',
+
+            # ── logo ─────────────────────────────────────────────────────────
+            'receipt_show_logo':   config.receipt_show_logo,
+            'receipt_logo_height': config.receipt_logo_height or 60,
+            # logo binary dikirim sebagai base64 data-uri agar bisa dipakai di template
+            'receipt_logo_data':   config.logo.decode('utf-8') if config.logo else '',
+
+            # ── bold per section ─────────────────────────────────────────────
+            'receipt_bold_header':  config.receipt_bold_header,
+            'receipt_bold_info':    config.receipt_bold_info,
+            'receipt_bold_items':   config.receipt_bold_items,
+            'receipt_bold_total':   config.receipt_bold_total,
+            'receipt_bold_summary': config.receipt_bold_summary,
         }
 
         _logger.info("✅ [RECEIPT ADDRESS] Loaded: %s", res['pos_receipt_address'])

@@ -15,7 +15,25 @@ class PosConfig(models.Model):
                                        help='Indicates the receipt design is '
                                             'custom or not')
 
-    # ✅ Custom address fields for receipt (format per spreadsheet)
+    # ── Logo ──────────────────────────────────────────────────────────────────
+    receipt_show_logo   = fields.Boolean(string='Tampilkan Logo di Struk',
+                                         default=True)
+    receipt_logo_height = fields.Integer(string='Tinggi Logo (px)', default=60,
+                                         help='Tinggi logo dalam pixel, misal: 60')
+
+    # ── Bold per Section ──────────────────────────────────────────────────────
+    receipt_bold_header    = fields.Boolean(string='Bold: Nama Toko & Alamat',
+                                            default=True)
+    receipt_bold_info      = fields.Boolean(string='Bold: Info Transaksi',
+                                            default=True)
+    receipt_bold_items     = fields.Boolean(string='Bold: Daftar Item',
+                                            default=True)
+    receipt_bold_total     = fields.Boolean(string='Bold: Total & Pembayaran',
+                                            default=True)
+    receipt_bold_summary   = fields.Boolean(string='Bold: Ringkasan & Footer',
+                                            default=True)
+
+    # ── Custom address fields ─────────────────────────────────────────────────
     receipt_store_name   = fields.Char(string='Nama Toko di Struk',
                                     help='Contoh: GMP Elektrik Lippo Cikarang')
     receipt_company_name = fields.Char(string='Nama Perusahaan di Struk',

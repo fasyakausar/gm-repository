@@ -65,6 +65,7 @@ class PosSession(models.Model):
     name_session_pos = fields.Char(string="Name Session POS (Odoo Store)", tracking=True)
 
     def _pos_ui_models_to_load(self):
+        
         res = super()._pos_ui_models_to_load()
         
         # Only add models that exist and are properly configured

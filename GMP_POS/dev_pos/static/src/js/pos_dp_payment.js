@@ -6,71 +6,26 @@ import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 import { _t } from "@web/core/l10n/translation";
 
 patch(PaymentScreen.prototype, {
+
+    setup() {
+        super.setup(...arguments);
+
+        // ✅ Simpan semua method (termasuk DP) untuk keperluan internal,
+        // lalu filter DP keluar dari daftar tombol yang tampil ke kasir.
+        this._all_payment_methods_from_config = this.payment_methods_from_config;
+        this.payment_methods_from_config = this._all_payment_methods_from_config.filter(
+            (method) => !method.gm_is_dp
+        );
+    },
+
     async onMounted() {
         await super.onMounted(...arguments);
         await this._autoSelectGiftCardPayment();
     },
 
     /**
-     * Override addNewPaymentLine to block manual selection of DP payment method
-     */
-    addNewPaymentLine(paymentMethod) {
-        if (paymentMethod && paymentMethod.gm_is_dp) {
-            this.popup.add(ErrorPopup, {
-                title: _t("Payment Method Locked"),
-                body: _t(
-                    "This payment method is reserved for automatic gift card redemption and cannot be manually selected."
-                ),
-            });
-            return;
-        }
-        // Default Odoo behavior
-        return super.addNewPaymentLine(paymentMethod);
-    },
-
-    /**
-     * Override selectPaymentLine to block DP payment selection
-     */
-    selectPaymentLine(cid) {
-        const line = this.paymentLines.find((line) => line.cid === cid);
-        if (line && line.payment_method && line.payment_method.gm_is_dp) {
-            this.popup.add(ErrorPopup, {
-                title: _t("Cannot Modify Payment"),
-                body: _t(
-                    "This payment method is automatically set based on gift card balance and cannot be modified.\n\n" +
-                    "Current amount: %s",
-                    this.env.utils.formatCurrency(line.amount)
-                ),
-            });
-            this.currentOrder.select_paymentline(null);
-            this.numberBuffer.reset();
-            return;
-        }
-        super.selectPaymentLine(cid);
-    },
-
-    /**
-     * Override updateSelectedPaymentline to block DP payment update
-     */
-    updateSelectedPaymentline(amount = false) {
-        const paymentLine = this.selectedPaymentLine;
-        if (paymentLine && paymentLine.payment_method && paymentLine.payment_method.gm_is_dp) {
-            this.popup.add(ErrorPopup, {
-                title: _t("Cannot Modify Payment Amount"),
-                body: _t(
-                    "This payment method is automatically set based on gift card balance and cannot be modified.\n\n" +
-                    "Current amount: %s",
-                    this.env.utils.formatCurrency(paymentLine.amount)
-                ),
-            });
-            this.numberBuffer.reset();
-            return;
-        }
-        super.updateSelectedPaymentline(amount);
-    },
-
-    /**
-     * Override deletePaymentLine to block DP payment deletion
+     * Override deletePaymentLine:
+     * Blokir penghapusan payment line DP via tombol ×
      */
     deletePaymentLine(cid) {
         const line = this.paymentLines.find((line) => line.cid === cid);
@@ -87,10 +42,27 @@ patch(PaymentScreen.prototype, {
         super.deletePaymentLine(cid);
     },
 
+    /**
+     * Override selectPaymentLine:
+     * Blokir seleksi line DP agar numpad tidak bisa mengubah nominalnya.
+     */
+    selectPaymentLine(cid) {
+        const line = this.paymentLines.find((line) => line.cid === cid);
+        if (line && line.payment_method && line.payment_method.gm_is_dp) {
+            this.currentOrder.select_paymentline(null);
+            this.numberBuffer.reset();
+            return;
+        }
+        super.selectPaymentLine(cid);
+    },
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Gift card auto-payment logic
+    // ─────────────────────────────────────────────────────────────────────────
+
     async _autoSelectGiftCardPayment() {
         const order = this.pos.get_order();
-        const hasRedeemedGiftCard = this._hasRedeemedGiftCard(order);
-        if (!hasRedeemedGiftCard) return;
+        if (!this._hasRedeemedGiftCard(order)) return;
 
         const dpPaymentMethod = await this._findDpPaymentMethodOnline();
         if (!dpPaymentMethod) return;
@@ -105,21 +77,16 @@ patch(PaymentScreen.prototype, {
         if (order.couponPointChanges) {
             for (const pe of Object.values(order.couponPointChanges)) {
                 const program = this.pos.program_by_id[pe.program_id];
-                if (program && program.program_type === 'gift_card') {
-                    return true;
-                }
+                if (program && program.program_type === 'gift_card') return true;
             }
         }
         if (order.codeActivatedCoupons && order.codeActivatedCoupons.length > 0) {
             for (const coupon of order.codeActivatedCoupons) {
                 const program = this.pos.program_by_id[coupon.program_id];
-                if (program && program.program_type === 'gift_card') {
-                    return true;
-                }
+                if (program && program.program_type === 'gift_card') return true;
             }
         }
-        const orderlines = order.get_orderlines();
-        for (const line of orderlines) {
+        for (const line of order.get_orderlines()) {
             if (line.is_reward_line && line.reward_id) {
                 const reward = this.pos.reward_by_id[line.reward_id];
                 if (reward && reward.program_id && reward.program_id.program_type === 'gift_card') {
@@ -139,10 +106,8 @@ patch(PaymentScreen.prototype, {
                 { limit: 2 }
             );
             if (dpMethodIds.length !== 1) return null;
-            const dpMethod = this.payment_methods_from_config.find(
-                (method) => method.id === dpMethodIds[0]
-            );
-            return dpMethod;
+            // Gunakan _all_payment_methods_from_config agar DP method tetap bisa ditemukan
+            return this._all_payment_methods_from_config.find((m) => m.id === dpMethodIds[0]) || null;
         } catch (error) {
             console.error('[ERROR] Failed to find DP payment method:', error);
             return null;
@@ -181,7 +146,7 @@ patch(PaymentScreen.prototype, {
     },
 
     _addGiftCardPaymentLine(paymentMethod, amount) {
-        const existingDpPayment = this.paymentLines.find((line) => line.payment_method.gm_is_dp);
+        const existingDpPayment = this.paymentLines.find((l) => l.payment_method.gm_is_dp);
         if (existingDpPayment) {
             existingDpPayment.set_amount(amount);
             return;
@@ -190,8 +155,10 @@ patch(PaymentScreen.prototype, {
         for (const line of existingLines) {
             if (!line.payment_method.gm_is_dp) super.deletePaymentLine(line.cid);
         }
-        const result = this.addNewPaymentLine(paymentMethod);
+        // Panggil add_paymentline langsung di order (bypass semua override)
+        const result = this.currentOrder.add_paymentline(paymentMethod);
         if (result) {
+            this.numberBuffer.reset();
             const newLine = this.selectedPaymentLine;
             if (newLine) {
                 newLine.set_amount(amount);

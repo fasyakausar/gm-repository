@@ -155,6 +155,7 @@
             # 'integrasi_pos/static/src/js/redeem_point.js',
             'integrasi_pos/static/src/js/searching_cashier_login.js',
             'integrasi_pos/static/src/js/customer_line.js',
+            'integrasi_pos/static/src/js/customer_search.js',
             # 'integrasi_pos/static/src/js/redeem_point_patch.js',
             # 'integrasi_pos/static/src/js/local_storage_helper.js',
             # 'integrasi_pos/static/src/js/loyalty_program_model.js',

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+    <t t-name="dev_pos.SalePinDialog">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">Validasi PIN Manager</h5>
+                </div>
+                <div class="modal-body">
+                    <p>Masukkan PIN manager untuk mengubah harga.</p>
+                    <input
+                        type="password"
+                        class="form-control"
+                        placeholder="PIN"
+                        t-on-input="onInput"
+                        t-att-value="state.pin"
+                    />
+                    <t t-if="state.error">
+                        <p class="text-danger mt-2">
+                            <t t-esc="state.error"/>
+                        </p>
+                    </t>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" t-on-click="onCancel">
+                        Batal
+                    </button>
+                    <button class="btn btn-primary" t-on-click="onConfirm">
+                        Konfirmasi
+                    </button>
+                </div>
+            </div>
+        </div>
+    </t>
+</templates>
