@@ -38,3 +38,4 @@ access_return_approval_wizard_user,return.approval.wizard.user,model_return_appr
 access_return_approval_wizard_level_1,return.approval.wizard.level.1,model_return_approval_wizard,dev_pos.group_return_approval_level_1,1,1,1,1
 access_return_approval_wizard_level_2,return.approval.wizard.level.2,model_return_approval_wizard,dev_pos.group_return_approval_level_2,1,1,1,1
 access_return_approval_wizard_manager,return.approval.wizard.manager,model_return_approval_wizard,dev_pos.group_return_approval_manager,1,1,1,1
+access_sale_price_pin_wizard,access_sale.price.pin.wizard,model_sale_price_pin_wizard,base.group_user,1,1,1,1

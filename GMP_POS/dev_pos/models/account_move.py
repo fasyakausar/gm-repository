@@ -19,3 +19,13 @@ class AccountMove(models.Model):
     gm_invoice_e_commerce = fields.Char(string="Invoice Tokopedia", default=False, tracking=True)
     gm_po_customer = fields.Char(string="PO Customer")
     gm_nota_manual = fields.Char(string="Nota Manual")
+
+    customer_info = fields.Many2one(
+        'res.company',
+        string='Customer Company',
+        readonly=False,
+    )
+
+    @api.onchange('partner_id')
+    def _onchange_partner_customer_info(self):
+        self.customer_info = self.partner_id.company_id if self.partner_id else False

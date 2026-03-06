@@ -49,22 +49,36 @@ patch(OrderReceipt.prototype, {
     },
 
     get templateProps() {
-        const order = this.pos.get_order();
+        const order  = this.pos.get_order();
         const partner = order ? order.get_partner() : null;
-        const self = this;
+        const ra      = this.pos.receipt_address || {};
+        const self    = this;
 
         return {
-            pos: this.pos,
-            data: this.props.data,
-            order: order,
-            receipt: this.props.data,
-            orderlines: this.props.data.orderlines,
+            pos:          this.pos,
+            data:         this.props.data,
+            order:        order,
+            receipt:      this.props.data,
+            orderlines:   this.props.data.orderlines,
             paymentlines: this.props.data.paymentlines,
-            partner: partner,
-            // ✅ Helper functions dikirim sebagai props
-            formatDate: (val) => self.formatReceiptDate(val),
-            fmtCurrency: (amount) => self.fmtCurrency(amount),
-            stripRp: (val) => self.stripRp(val),
+            partner:      partner,
+
+            // ── helper functions ──────────────────────────────────────────────
+            formatDate:   (val)    => self.formatReceiptDate(val),
+            fmtCurrency:  (amount) => self.fmtCurrency(amount),
+            stripRp:      (val)    => self.stripRp(val),
+
+            // ── logo ─────────────────────────────────────────────────────────
+            showLogo:   ra.receipt_show_logo   !== false,
+            logoHeight: ra.receipt_logo_height || 60,
+            logoData:   ra.receipt_logo_data   || '',
+
+            // ── bold per section ─────────────────────────────────────────────
+            boldHeader:  ra.receipt_bold_header  !== false,
+            boldInfo:    ra.receipt_bold_info    !== false,
+            boldItems:   ra.receipt_bold_items   !== false,
+            boldTotal:   ra.receipt_bold_total   !== false,
+            boldSummary: ra.receipt_bold_summary !== false,
         };
     },
 

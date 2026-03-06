@@ -552,7 +552,10 @@ class PaymentInvoiceAPI(http.Controller):
             # =================================================
             domain = [
                 ('state', '=', 'invoiced'),
-                ('amount_total', '>', 0)
+                ('amount_total', '>', 0),
+                ('partner_id.customer_code', '!=', False),       # ✅ Exclude empty customer_code
+                ('partner_id.customer_code', '!=', ''),          # ✅ Exclude blank customer_code
+                ('company_id', '!=', False),                     # ✅ Exclude empty company
             ]
 
             if q:
@@ -807,7 +810,10 @@ class PaymentReturnCreditMemoAPI(http.Controller):
             # =====================================
             domain = [
                 ('state', '=', 'invoiced'),
-                ('amount_total', '<', 0)  # POS RETURN
+                ('amount_total', '<', 0),                        # POS RETURN
+                ('partner_id.customer_code', '!=', False),       # ✅ Exclude empty customer_code
+                ('partner_id.customer_code', '!=', ''),          # ✅ Exclude blank customer_code
+                ('company_id', '!=', False),                     # ✅ Exclude empty company
             ]
 
             if q:
@@ -1365,7 +1371,7 @@ class MasterCustomerAPI(http.Controller):
                 return serialize_response([], 0, 0)
 
             date_format = '%Y-%m-%d'
-            domain = []
+            domain = [('customer_code', '!=', False), ('customer_code', '!=', ''), ('company_id', '!=', False)]
             pageSize = int(pageSize) if pageSize else 200
 
             # Build domain filters
@@ -1387,9 +1393,13 @@ class MasterCustomerAPI(http.Controller):
                         ('create_date', '<=', created_date_to.strftime(date_format))]
             
             # Fix: Properly handle is_integrated filter
+            # Fix is_integrated filter
             if is_integrated is not None:
                 is_integrated_bool = str(is_integrated).lower() == 'true'
-                domain += [('is_integrated', '=', is_integrated_bool)]
+                if is_integrated_bool:
+                    domain += [('is_integrated', '=', True)]
+                else:
+                    domain += [('is_integrated', '!=', True)]  # ✅ Capture False AND NULL
 
             # ✅ Fetch data with pagination - ALWAYS use domain
             customers_data, total_records = paginate_records('res.partner', domain, pageSize, page)
@@ -2571,7 +2581,7 @@ class InvoiceOrder(http.Controller):
             date_format = '%Y-%m-%d'
             domain = [
                 ('state', '=', 'posted'),
-                ('payment_state', '=', 'paid'),
+                ('payment_state', 'in', ['paid', 'partial']),
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
                 ('gm_is_dp', '=', False),
@@ -2616,8 +2626,6 @@ class InvoiceOrder(http.Controller):
                 if order.pos_order_ids:
                     pos_order = order.pos_order_ids[0]
                     if hasattr(pos_order, 'vit_pos_store') and pos_order.vit_pos_store:
-                        # vit_pos_store adalah string nama location
-                        # Cari di stock.location berdasarkan name atau complete_name
                         location = request.env['stock.location'].sudo().search([
                             '|',
                             ('name', '=', pos_order.vit_pos_store),
@@ -2640,8 +2648,8 @@ class InvoiceOrder(http.Controller):
                     'customer_name': order.partner_id.name,
                     'customer_code': order.partner_id.customer_code or "",
                     'bp_type': order.partner_id.gm_bp_type,
-                    'location_id': location_id,  # ✅ ID dari stock.location
-                    'location': location_name,   # ✅ Nama dari stock.location
+                    'location_id': location_id,
+                    'location': location_name,
                     'is_integrated': order.is_integrated,
                     'create_date': str(create_date_jakarta),
                     'invoice_date': str(order.invoice_date),
@@ -2675,10 +2683,10 @@ class InvoiceOrder(http.Controller):
             invoicing = request.env['account.move'].sudo().search([
                 ('id', '=', order_id),
                 ('state', '=', 'posted'),
-                ('payment_state', '=', 'paid'),
+                ('payment_state', 'in', ['paid', 'partial']),
                 ('move_type', '=', 'out_invoice'),
                 ('partner_id.customer_code', '!=', False),
-                ('gm_is_dp', '=', False),  # TAMBAHAN: Pastikan invoice bukan DP
+                ('gm_is_dp', '=', False),
                 ('partner_id.gm_bp_type', '=', 'customer')
             ], limit=1)
 
@@ -2720,6 +2728,13 @@ class InvoiceOrder(http.Controller):
                     if hasattr(line.product_id, 'gm_is_pelunasan') and line.product_id.gm_is_pelunasan:
                         _logger.info(f"Skipping line {line.id} - product has gm_is_pelunasan = True")
                         continue
+
+                    # ================================
+                    # SKIP JIKA ITEM CODE ADALAH ROUNDING
+                    # ================================
+                    if (line.product_id.default_code or '').strip().upper() == 'ROUNDING':
+                        _logger.info(f"Skipping line {line.id} - product code is ROUNDING")
+                        continue
                     
                     # Skip hanya jika quantity 0
                     if line.quantity == 0:
@@ -2741,14 +2756,13 @@ class InvoiceOrder(http.Controller):
                     except Exception as type_error:
                         _logger.warning(f"Error getting product type for line {line.id}: {str(type_error)}")
                     
-                    is_service = product_type in ['service', 'consu']  # consu juga tidak punya stock move
+                    is_service = product_type in ['service', 'consu']
                     
                     _logger.info(f"Processing line {line.id}: product={line.product_id.default_code}, type={product_type}, is_service={is_service}, qty={line.quantity}")
                     
                     # Cari location - wrap dalam try-catch
                     try:
                         if not is_service:
-                            # Untuk produk storable/consumable, cari picking seperti biasa
                             pickings = request.env['stock.picking'].sudo().search([
                                 ('pos_order_id', '=', invoicing.pos_order_ids[0].id if invoicing.pos_order_ids else False),
                                 ('origin', '=', invoicing.ref),
@@ -2768,12 +2782,8 @@ class InvoiceOrder(http.Controller):
                                     location_dest_id = pos_order.vit_pos_store.id
                                     location_dest = pos_order.vit_pos_store.name
                         else:
-                            # Untuk produk service:
-                            # 1. Tetap cari di stock.picking untuk location_id dan location_dest_id
-                            # 2. Gunakan vit_pos_store untuk location dan location_dest (string)
                             _logger.info(f"Line {line.id} is SERVICE type, processing location")
                             
-                            # Cari picking dulu untuk dapat location_id
                             pickings = request.env['stock.picking'].sudo().search([
                                 ('pos_order_id', '=', invoicing.pos_order_ids[0].id if invoicing.pos_order_ids else False),
                                 ('origin', '=', invoicing.ref)
@@ -2784,26 +2794,21 @@ class InvoiceOrder(http.Controller):
                                 location_dest_id = pickings.location_dest_id.id
                                 _logger.info(f"Service line {line.id}: Found picking with location_id {location_id}")
                             
-                            # Gunakan vit_pos_store untuk location name
                             if invoicing.pos_order_ids:
                                 pos_order = invoicing.pos_order_ids[0]
                                 if hasattr(pos_order, 'vit_pos_store') and pos_order.vit_pos_store:
-                                    # vit_pos_store adalah char field, bukan many2one
                                     location = pos_order.vit_pos_store
                                     location_dest = pos_order.vit_pos_store
                                     _logger.info(f"Service line {line.id}: Using vit_pos_store '{location}'")
                                     
-                                    # Jika belum ada location_id dari picking, set None
                                     if not location_id:
                                         location_id = None
                                         location_dest_id = None
                             
-                            # Jika tidak ada vit_pos_store dan tidak ada picking
                             if not location and not location_id:
                                 _logger.info(f"Service line {line.id}: No location found, setting to None")
                     except Exception as location_error:
                         _logger.warning(f"Error finding location for line {line.id}: {str(location_error)}")
-                        # Set default None values - sudah di-initialize di atas
 
                     # Cek tax, jika kosong isi dengan PPNK
                     tax_data = []

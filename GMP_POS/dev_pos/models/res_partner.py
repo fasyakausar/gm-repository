@@ -174,10 +174,10 @@ class ResPartner(models.Model):
             validate_prefix = self.env['ir.config_parameter'].sudo().get_param('pos.validate_prefix_customer') == 'True'
 
             # Fetch warehouse prefix or fallback
-            warehouse_name = 'VIT'
+            warehouse_name = 'GMP'
             warehouse = self.env['stock.warehouse'].search([], limit=1)
             if warehouse:
-                warehouse_name = warehouse.prefix_code if (validate_prefix and warehouse.prefix_code) else warehouse.code or 'VIT'
+                warehouse_name = warehouse.prefix_code if (validate_prefix and warehouse.prefix_code) else warehouse.code or 'GMP'
 
             # Check different conditions
             if name != employee_name or (name == employee_name and mobile != employee_mobile_phone):

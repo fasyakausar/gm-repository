@@ -56,4 +56,5 @@ from . import qty_on_hand
 from . import rounding_pos
 from . import scan_barcode_so_inventory
 from . import stock_picking_return
+from . import sale_order
 # from . import res_users
