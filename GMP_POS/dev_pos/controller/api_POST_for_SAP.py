@@ -20,19 +20,14 @@ _logger = logging.getLogger(__name__)
 
 class POSTMasterTax(http.Controller):
 
-    @http.route('/api/master_tax', type='http', auth='none', methods=['POST'], csrf=False)
+    @http.route('/api/master_tax', type='json', auth='none', methods=['POST'], csrf=False)
     def post_master_tax(self, **kw):
         try:
-            # -------------- Authentication --------------
             config = request.env['setting.config'].sudo().search(
                 [('vit_config_server', '=', 'mc')], limit=1
             )
             if not config:
-                return request.make_json_response({
-                    'status': "Failed",
-                    'code': 500,
-                    'message': "Configuration not found."
-                })
+                return {'status': "Failed", 'code': 500, 'message': "Configuration not found."}
 
             uid = request.session.authenticate(
                 request.session.db,
@@ -40,37 +35,25 @@ class POSTMasterTax(http.Controller):
                 config.vit_config_password_api
             )
             if not uid:
-                return request.make_json_response({
-                    'status': "Failed",
-                    'code': 401,
-                    'message': "Authentication failed."
-                })
+                return {'status': "Failed", 'code': 401, 'message': "Authentication failed."}
 
             env = request.env(user=request.env.ref('base.user_admin').id)
 
-            # -------------- Parse JSON Body --------------
-            data = json.loads(request.httprequest.data.decode('utf-8'))
-            items = data.get('items', [])
+            json_data = request.get_json_data()
+            items = json_data.get('items', [])
+            if isinstance(items, dict):
+                items = [items]
+            elif not isinstance(items, list):
+                return {'status': "Failed", 'code': 400, 'message': "'items' must be a list."}
+            if not items:
+                return {'status': "Failed", 'code': 400, 'message': "'items' list is empty."}
 
-            if not isinstance(items, list):
-                return request.make_json_response({
-                    'status': "Failed",
-                    'code': 400,
-                    'message': "'items' must be a list."
-                })
-
-            # -------------- Get all active companies --------------
             companies = env['res.company'].sudo().search([('active', '=', True)])
             if not companies:
-                return request.make_json_response({
-                    'status': "Failed",
-                    'code': 404,
-                    'message': "No active companies found."
-                })
+                return {'status': "Failed", 'code': 404, 'message': "No active companies found."}
 
             created, updated, failed = [], [], []
 
-            # -------------- Process each item --------------
             for item in items:
                 try:
                     tax_name = item.get('name')
@@ -84,9 +67,29 @@ class POSTMasterTax(http.Controller):
                         })
                         continue
 
-                    # Loop through each company
+                    valid_amount_types = ['percent', 'fixed', 'division', 'group']
+                    amount_type = item.get('amount_type', 'percent')
+                    if amount_type not in valid_amount_types:
+                        failed.append({
+                            'data': item,
+                            'message': f"Invalid amount_type '{amount_type}'",
+                            'company_id': None,
+                            'company_name': None,
+                            'id': None
+                        })
+                        continue
+
                     for company in companies:
+                        savepoint_name = f'company_{company.id}_tax_{tax_name}'
                         try:
+                            env.cr.execute(f'SAVEPOINT "{savepoint_name}"')
+
+                            # Ambil 1 tax group per company
+                            tax_group = env['account.tax.group'].sudo().search([
+                                ('company_id', '=', company.id),
+                                ('name', 'ilike', "Taxes")
+                            ], limit=1)
+
                             existing_tax = env['account.tax'].sudo().search([
                                 ('name', '=', tax_name),
                                 ('company_id', '=', company.id)
@@ -101,11 +104,12 @@ class POSTMasterTax(http.Controller):
                                 'invoice_label': item.get('invoice_label'),
                                 'company_id': company.id,
                                 'create_uid': uid,
+                                'tax_group_id': tax_group.id if tax_group else False,
                             }
 
                             if existing_tax:
-                                # Update
-                                existing_tax.write(tax_data)
+                                update_data = {k: v for k, v in tax_data.items() if k != 'company_id'}
+                                existing_tax.sudo().write(update_data)
                                 updated.append({
                                     'id': existing_tax.id,
                                     'name': existing_tax.name,
@@ -114,7 +118,6 @@ class POSTMasterTax(http.Controller):
                                     'action': 'updated'
                                 })
                             else:
-                                # Create
                                 new_tax = env['account.tax'].sudo().create(tax_data)
                                 created.append({
                                     'id': new_tax.id,
@@ -124,7 +127,13 @@ class POSTMasterTax(http.Controller):
                                     'action': 'created'
                                 })
 
+                            env.cr.execute(f'RELEASE SAVEPOINT "{savepoint_name}"')
+
                         except Exception as e:
+                            try:
+                                env.cr.execute(f'ROLLBACK TO SAVEPOINT "{savepoint_name}"')
+                            except:
+                                pass
                             failed.append({
                                 'data': item,
                                 'company_id': company.id,
@@ -142,24 +151,29 @@ class POSTMasterTax(http.Controller):
                         'id': None
                     })
 
-            # -------------- Final Response --------------
-            return request.make_json_response({
+            env.cr.commit()
+
+            return {
                 'code': 200,
-                'status': "success",
+                'status': 'success',
                 'total_companies_processed': len(companies),
+                'summary': {
+                    'total_created': len(created),
+                    'total_updated': len(updated),
+                    'total_failed': len(failed)
+                },
                 'created_taxes': created,
                 'updated_taxes': updated,
                 'failed_taxes': failed
-            })
+            }
 
         except Exception as e:
-            _logger.error(f"Failed to process tax: {str(e)}", exc_info=True)
-            request.env.cr.rollback()
-            return request.make_json_response({
-                'status': "Failed",
-                'code': 500,
-                'message': f"Failed to process tax: {str(e)}"
-            })
+            try:
+                request.env.cr.rollback()
+            except:
+                pass
+            _logger.error(f"Failed to process tax: {str(e)}")
+            return {'status': 'Failed', 'code': 500, 'message': f"Failed to process tax: {str(e)}"}
 
 class POSTEmployee(http.Controller):
     @http.route('/api/hr_employee', type='http', auth='none', methods=['POST'], csrf=False)
@@ -808,248 +822,286 @@ class POSTMasterPricelist(http.Controller):
     @http.route('/api/master_pricelist', type='json', auth='none', methods=['POST'], csrf=False)
     def post_pricelist(self, **kw):
         try:
-            # Authentication
-            config = request.env['setting.config'].sudo().search([('vit_config_server', '=', 'mc')], limit=1)
+            # ── Authentication ────────────────────────────────────────────────
+            config = request.env['setting.config'].sudo().search(
+                [('vit_config_server', '=', 'mc')], limit=1
+            )
             if not config:
                 return {'status': "Failed", 'code': 500, 'message': "Configuration not found."}
-            
-            uid = request.session.authenticate(request.session.db, config.vit_config_username, config.vit_config_password_api)
+ 
+            uid = request.session.authenticate(
+                request.session.db, config.vit_config_username, config.vit_config_password_api
+            )
             if not uid:
                 return {'status': "Failed", 'code': 401, 'message': "Authentication failed."}
-
+ 
             env = request.env(user=request.env.ref('base.user_admin').id)
-            
-            # Get all active companies
+ 
+            # ── Pre-load master data (single queries) ─────────────────────────
             companies = env['res.company'].sudo().search([('active', '=', True)])
             if not companies:
-                return {
-                    'status': "Failed", 
-                    'code': 404, 
-                    'message': "No active companies found."
-                }
-
-            data = request.get_json_data()
+                return {'status': "Failed", 'code': 404, 'message': "No active companies found."}
+ 
+            company_ids = companies.ids
+ 
+            data  = request.get_json_data()
             items = data.get('items', [])
             if not isinstance(items, list):
                 items = [data]
-
-            created = []  # To store successfully created pricelists
-            updated = []  # To store successfully updated pricelists
-            failed = []   # To store failed pricelists
-
-            # Process each item
+ 
+            created, updated, failed = [], [], []
+ 
+            # ── Collect ALL product codes across every item up-front ──────────
+            all_product_codes = {
+                line.get('product_code')
+                for item in items
+                for line in item.get('pricelist_ids', [])
+                if line.get('product_code')
+            }
+ 
+            # Single bulk query: fetch products for all companies at once
+            all_products_rs = env['product.product'].sudo().search([
+                ('default_code', 'in', list(all_product_codes)),
+                '|',
+                ('company_id', 'in', company_ids),
+                ('company_id', '=', False),
+            ])
+ 
+            # Build lookup map – prefer company-specific record over global one
+            # (code, company_id) -> product_tmpl_id
+            product_map: dict[tuple, int] = {}
+            for p in all_products_rs:
+                code = p.default_code
+                cid  = p.company_id.id or False
+                product_map[(code, cid)] = p.product_tmpl_id.id
+ 
+            def _get_tmpl_id(code, company_id):
+                """Return product_tmpl_id; prefer company-specific, fall back to global."""
+                return product_map.get((code, company_id)) or product_map.get((code, False))
+ 
+            # ── Collect ALL currency IDs for a single existence check ─────────
+            all_currency_ids = {
+                item.get('currency_id')
+                for item in items
+                if item.get('currency_id')
+            }
+            valid_currencies = set(
+                env['res.currency'].sudo().browse(list(all_currency_ids))
+                .filtered('active').ids
+            )
+ 
+            # ── Collect existing pricelists in ONE query ───────────────────────
+            all_names = {item.get('name') for item in items if item.get('name')}
+            existing_rs = env['product.pricelist'].sudo().search([
+                ('name', 'in', list(all_names)),
+                ('company_id', 'in', company_ids),
+            ])
+            # {(name, company_id): pricelist_record}
+            existing_map: dict[tuple, object] = {
+                (pl.name, pl.company_id.id): pl for pl in existing_rs
+            }
+ 
+            # ── Process items ─────────────────────────────────────────────────
             for data_item in items:
                 try:
                     # Validate required fields
                     required_fields = ['name', 'currency_id', 'pricelist_ids']
-                    missing_fields = [field for field in required_fields if not data_item.get(field)]
-                    if missing_fields:
+                    missing = [f for f in required_fields if not data_item.get(f)]
+                    if missing:
                         failed.append({
-                            'data': data_item,
-                            'company_id': None,
-                            'company_name': None,
-                            'message': f"Missing required fields: {', '.join(missing_fields)}",
-                            'id': None
+                            'data': data_item, 'company_id': None, 'company_name': None,
+                            'message': f"Missing required fields: {', '.join(missing)}", 'id': None
                         })
                         continue
-
-                    name = data_item.get('name')
-                    currency_id = data_item.get('currency_id')
-
-                    # Validate currency
-                    currency = env['res.currency'].sudo().browse(currency_id)
-                    if not currency.exists():
+ 
+                    name        = data_item['name']
+                    currency_id = data_item['currency_id']
+ 
+                    if currency_id not in valid_currencies:
                         failed.append({
-                            'data': data_item,
-                            'company_id': None,
-                            'company_name': None,
-                            'message': f"Currency with ID {currency_id} not found.",
-                            'id': None
+                            'data': data_item, 'company_id': None, 'company_name': None,
+                            'message': f"Currency with ID {currency_id} not found.", 'id': None
                         })
                         continue
-
-                    # Loop through all companies
-                    for company in companies:
+ 
+                    # ── Pre-validate & build line data once (shared across companies) ──
+                    items_lines_data = []
+                    item_failed      = False
+                    item_fail_msgs   = []
+ 
+                    for line in data_item.get('pricelist_ids', []):
+                        product_code  = line.get('product_code')
+                        compute_price = line.get('compute_price')
+ 
+                        if not product_code:
+                            item_fail_msgs.append("Product code is required for all pricelist items.")
+                            item_failed = True
+                            break
+ 
+                        # Date parsing & validation (done once per line, not per company)
+                        date_start = line.get('date_start')
+                        date_end   = line.get('date_end')
                         try:
-                            # Check if pricelist exists by name and company
-                            existing_pricelist = env['product.pricelist'].sudo().search([
-                                ('name', '=', name),
-                                ('company_id', '=', company.id)
-                            ], limit=1)
-                            
-                            # Validate all products first
-                            missing_products = []
-                            invalid_dates = []
-                            items_lines_data = []
-
-                            for line in data_item.get('pricelist_ids', []):
-                                product_code = line.get('product_code')
-                                if not product_code:
-                                    failed.append({
-                                        'data': data_item,
-                                        'company_id': company.id,
-                                        'company_name': company.name,
-                                        'message': "Product code is required for all pricelist items.",
-                                        'id': None
-                                    })
-                                    continue
-
-                                product = env['product.product'].sudo().search([
-                                    ('default_code', '=', product_code),
-                                    '|',
-                                    ('company_id', '=', company.id),
-                                    ('company_id', '=', False)
-                                ], limit=1)
-                                
-                                if not product:
-                                    missing_products.append(product_code)
-                                    continue
-
-                                # Validate and parse dates
-                                date_start = line.get('date_start')
-                                date_end = line.get('date_end')
-                                
-                                try:
-                                    if date_start:
-                                        date_start = datetime.strptime(date_start.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                                    if date_end:
-                                        date_end = datetime.strptime(date_end.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                                        
-                                    if date_start and date_end and date_start > date_end:
-                                        invalid_dates.append(product_code)
-                                        continue
-                                except ValueError as e:
-                                    failed.append({
-                                        'data': data_item,
-                                        'company_id': company.id,
-                                        'company_name': company.name,
-                                        'message': f"Invalid date format for product {product_code}: {str(e)}",
-                                        'id': None
-                                    })
-                                    continue
-
-                                # Validate pricing fields
-                                compute_price = line.get('compute_price')
-                                if compute_price == 'percentage' and not line.get('percent_price'):
-                                    failed.append({
-                                        'data': data_item,
-                                        'company_id': company.id,
-                                        'company_name': company.name,
-                                        'message': f"Percent price is required for percentage computation for product {product_code}",
-                                        'id': None
-                                    })
-                                    continue
-                                elif compute_price == 'fixed' and not line.get('fixed_price'):
-                                    failed.append({
-                                        'data': data_item,
-                                        'company_id': company.id,
-                                        'company_name': company.name,
-                                        'message': f"Fixed price is required for fixed computation for product {product_code}",
-                                        'id': None
-                                    })
-                                    continue
-
-                                items_lines_data.append((0, 0, {
-                                    'product_tmpl_id': product.product_tmpl_id.id,
-                                    'applied_on': line.get('conditions'),
-                                    'compute_price': compute_price,
-                                    'percent_price': line.get('percent_price'),
-                                    'fixed_price': line.get('fixed_price'),
-                                    'min_quantity': line.get('quantity', 1),
-                                    'price': line.get('price'),
-                                    'date_start': date_start,
-                                    'date_end': date_end,
-                                }))
-
-                            if missing_products:
-                                failed.append({
-                                    'data': data_item,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'message': f"Products with codes {', '.join(missing_products)} not found in company '{company.name}'.",
-                                    'id': None
-                                })
-                                continue
-
-                            if invalid_dates:
-                                failed.append({
-                                    'data': data_item,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'message': f"Invalid date range for products: {', '.join(invalid_dates)} in company '{company.name}'",
-                                    'id': None
-                                })
-                                continue
-
-                            # Prepare pricelist data
-                            pricelist_data = {
-                                'name': name,
-                                'currency_id': currency_id,
-                                'company_id': company.id,
-                                'item_ids': items_lines_data,
-                            }
-
-                            if existing_pricelist:
-                                # Update existing pricelist - clear existing items and add new ones
-                                existing_pricelist.item_ids.unlink()  # Remove existing items
-                                existing_pricelist.write(pricelist_data)
-                                
-                                updated.append({
-                                    'id': existing_pricelist.id,
-                                    'name': existing_pricelist.name,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'action': 'updated'
-                                })
-                            else:
-                                # Create new pricelist
-                                pricelist_data['create_uid'] = uid
-                                pricelist = env['product.pricelist'].sudo().create(pricelist_data)
-
-                                created.append({
-                                    'id': pricelist.id,
-                                    'name': pricelist.name,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'action': 'created'
-                                })
-
-                        except Exception as e:
+                            if date_start:
+                                date_start = datetime.strptime(date_start.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                            if date_end:
+                                date_end = datetime.strptime(date_end.split('.')[0], '%Y-%m-%d %H:%M:%S')
+                            if date_start and date_end and date_start > date_end:
+                                item_fail_msgs.append(f"Invalid date range for product {product_code}.")
+                                item_failed = True
+                                break
+                        except ValueError as e:
+                            item_fail_msgs.append(f"Invalid date format for product {product_code}: {e}")
+                            item_failed = True
+                            break
+ 
+                        # Pricing validation (allow 0, only reject None/missing)
+                        if compute_price == 'percentage' and line.get('percent_price') is None:
+                            item_fail_msgs.append(
+                                f"Percent price required for percentage computation on product {product_code}."
+                            )
+                            item_failed = True
+                            break
+                        if compute_price == 'fixed' and line.get('fixed_price') is None:
+                            item_fail_msgs.append(
+                                f"Fixed price required for fixed computation on product {product_code}."
+                            )
+                            item_failed = True
+                            break
+ 
+                        items_lines_data.append({
+                            '_code':         product_code,
+                            'applied_on':    line.get('conditions'),
+                            'compute_price': compute_price,
+                            'percent_price': line.get('percent_price'),
+                            'fixed_price':   line.get('fixed_price'),
+                            'min_quantity':  line.get('quantity', 1),
+                            'price':         line.get('price'),
+                            'date_start':    date_start,
+                            'date_end':      date_end,
+                        })
+ 
+                    if item_failed:
+                        for msg in item_fail_msgs:
                             failed.append({
-                                'data': data_item,
-                                'company_id': company.id,
-                                'company_name': company.name,
-                                'message': f"Error: {str(e)}",
+                                'data': data_item, 'company_id': None, 'company_name': None,
+                                'message': msg, 'id': None
+                            })
+                        continue
+ 
+                    # ── Per-company upsert ────────────────────────────────────
+                    pricelists_to_create = []
+ 
+                    for company in companies:
+                        cid = company.id
+ 
+                        # Resolve product_tmpl_id per company
+                        resolved_lines = []
+                        missing_codes  = []
+                        for line_data in items_lines_data:
+                            tmpl_id = _get_tmpl_id(line_data['_code'], cid)
+                            if not tmpl_id:
+                                missing_codes.append(line_data['_code'])
+                                continue
+                            resolved_lines.append((0, 0, {
+                                k: v for k, v in line_data.items()
+                                if k != '_code'
+                            } | {'product_tmpl_id': tmpl_id}))
+ 
+                        if missing_codes:
+                            failed.append({
+                                'data': data_item, 'company_id': cid, 'company_name': company.name,
+                                'message': (
+                                    f"Products with codes {', '.join(missing_codes)} "
+                                    f"not found in company '{company.name}'."
+                                ),
                                 'id': None
                             })
-
+                            continue
+ 
+                        pricelist_data = {
+                            'name':        name,
+                            'currency_id': currency_id,
+                            'company_id':  cid,
+                        }
+ 
+                        existing_pl = existing_map.get((name, cid))
+                        if existing_pl:
+                            # ── UPSERT per line ───────────────────────────────
+                            # Kalau product_tmpl_id sudah ada di item_ids → update line
+                            # Kalau belum ada → tambah line baru
+                            existing_lines_map = {
+                                line.product_tmpl_id.id: line
+                                for line in existing_pl.item_ids
+                            }
+ 
+                            upsert_commands = []
+                            for (_, _, line_vals) in resolved_lines:
+                                tmpl_id = line_vals.get('product_tmpl_id')
+                                if tmpl_id in existing_lines_map:
+                                    # (1, id, vals) = update existing line
+                                    upsert_commands.append((1, existing_lines_map[tmpl_id].id, line_vals))
+                                else:
+                                    # (0, 0, vals) = create new line
+                                    upsert_commands.append((0, 0, line_vals))
+ 
+                            existing_pl.write({
+                                **pricelist_data,
+                                'item_ids': upsert_commands,
+                            })
+                            updated.append({
+                                'id':           existing_pl.id,
+                                'name':         existing_pl.name,
+                                'company_id':   cid,
+                                'company_name': company.name,
+                                'action':       'updated',
+                                'lines_added':  len(resolved_lines),
+                            })
+                        else:
+                            pricelists_to_create.append((company, {
+                                **pricelist_data,
+                                'item_ids':   resolved_lines,
+                                'create_uid': uid,
+                            }))
+ 
+                    # ── Batch create new pricelists ───────────────────────────
+                    if pricelists_to_create:
+                        new_pls = env['product.pricelist'].sudo().create(
+                            [pl_data for _, pl_data in pricelists_to_create]
+                        )
+                        for (company, _), pl in zip(pricelists_to_create, new_pls):
+                            created.append({
+                                'id':           pl.id,
+                                'name':         pl.name,
+                                'company_id':   company.id,
+                                'company_name': company.name,
+                                'action':       'created',
+                                'lines_added':  len(pl.item_ids),
+                            })
+                            # ── FIX: Masukkan ke existing_map SETELAH loop item selesai
+                            # bukan di dalam loop — supaya batch berikutnya
+                            # bisa append ke pricelist yang baru dibuat ini
+                            existing_map[(name, company.id)] = pl
+ 
                 except Exception as e:
                     failed.append({
-                        'data': data_item,
-                        'company_id': None,
-                        'company_name': None,
-                        'message': f"Error: {str(e)}",
-                        'id': None
+                        'data': data_item, 'company_id': None, 'company_name': None,
+                        'message': f"Error: {e}", 'id': None
                     })
-
-            # Return response
+ 
             return {
-                'code': 200,
-                'status': 'success',
-                'total_companies_processed': len(companies),
-                'created_pricelists': created,
-                'updated_pricelists': updated,
-                'failed_pricelists': failed
+                'code':                       200,
+                'status':                     'success',
+                'total_companies_processed':  len(companies),
+                'created_pricelists':         created,
+                'updated_pricelists':         updated,
+                'failed_pricelists':          failed,
             }
-
+ 
         except Exception as e:
             request.env.cr.rollback()
-            _logger.error(f"Failed to process Pricelists: {str(e)}", exc_info=True)
-            return {
-                'status': "Failed", 
-                'code': 500, 
-                'message': f"Failed to process Pricelists: {str(e)}"
-            }
+            _logger.error(f"Failed to process Pricelists: {e}", exc_info=True)
+            return {'status': "Failed", 'code': 500, 'message': f"Failed to process Pricelists: {e}"}
         
 class POSTMasterUoM(http.Controller):
     @http.route('/api/master_uom', type='json', auth='none', methods=['POST'], csrf=False)
@@ -1455,7 +1507,7 @@ class POSTMasterCustomer(http.Controller):
                         })
                         continue
 
-                    # ✅ Validate company_name (REQUIRED) — ditentukan oleh pengirim POST
+                    # Validate company_name (REQUIRED)
                     company_name = data_item.get('company_name')
                     if not company_name:
                         failed.append({
@@ -1467,7 +1519,7 @@ class POSTMasterCustomer(http.Controller):
                         })
                         continue
 
-                    # ✅ Validate company exists
+                    # Validate company exists
                     company = env['res.company'].sudo().search(
                         [('name', '=', company_name)], limit=1
                     )
@@ -1489,6 +1541,32 @@ class POSTMasterCustomer(http.Controller):
                             'company_id': company.id,
                             'company_name': company_name,
                             'message': f"Invalid gm_bp_type '{gm_bp_type}'. Must be one of: {VALID_BP_TYPES}",
+                            'id': None
+                        })
+                        continue
+
+                    # Validasi gm_bp_tax (REQUIRED, cukup kirim name)
+                    gm_bp_tax_name = data_item.get('gm_bp_tax')
+                    if not gm_bp_tax_name:
+                        failed.append({
+                            'customer_code': customer_code,
+                            'company_id': company.id,
+                            'company_name': company_name,
+                            'message': 'Missing required field: gm_bp_tax',
+                            'id': None
+                        })
+                        continue
+
+                    bp_tax = env['account.tax'].sudo().search([
+                        ('name', '=', gm_bp_tax_name),
+                        ('company_id', '=', company.id)
+                    ], limit=1)
+                    if not bp_tax:
+                        failed.append({
+                            'customer_code': customer_code,
+                            'company_id': company.id,
+                            'company_name': company_name,
+                            'message': f"Tax '{gm_bp_tax_name}' not found for company '{company_name}'",
                             'id': None
                         })
                         continue
@@ -1579,6 +1657,7 @@ class POSTMasterCustomer(http.Controller):
                         'mobile': data_item.get('mobile'),
                         'website': data_item.get('website'),
                         'gm_bp_type': gm_bp_type,
+                        'gm_bp_tax': bp_tax.id,
                         'is_integrated': is_integrated,
                         'vat': data_item.get('tax_id'),
                         'l10n_id_pkp': data_item.get('l10n_id_pkp', False),
@@ -1601,6 +1680,7 @@ class POSTMasterCustomer(http.Controller):
                             'company_id': company.id,
                             'company_name': company_name,
                             'gm_bp_type': existing.gm_bp_type,
+                            'gm_bp_tax': existing.gm_bp_tax.name if existing.gm_bp_tax else None,
                             'is_integrated': existing.is_integrated,
                             'action': 'updated'
                         })
@@ -1615,6 +1695,7 @@ class POSTMasterCustomer(http.Controller):
                             'company_id': company.id,
                             'company_name': company_name,
                             'gm_bp_type': customer.gm_bp_type,
+                            'gm_bp_tax': customer.gm_bp_tax.name if customer.gm_bp_tax else None,
                             'is_integrated': customer.is_integrated,
                             'action': 'created'
                         })
@@ -1806,16 +1887,13 @@ class POSTMasterWarehouse(http.Controller):
     @http.route('/api/master_warehouse', type='json', auth='none', methods=['POST'], csrf=False)
     def post_master_warehouse(self, **kw):
         try:
-            # =====================================================
-            # AUTHENTICATION
-            # =====================================================
             config = request.env['setting.config'].sudo().search([
                 ('vit_config_server', '=', 'mc')
             ], limit=1)
 
             if not config:
                 return {'status': "Failed", 'code': 500, 'message': "Configuration not found."}
-            
+
             uid = request.session.authenticate(
                 request.session.db,
                 config.vit_config_username,
@@ -1826,9 +1904,6 @@ class POSTMasterWarehouse(http.Controller):
 
             env = request.env
 
-            # =====================================================
-            # GET JSON BODY
-            # =====================================================
             data = request.get_json_data()
             items = data.get('items', [])
 
@@ -1836,52 +1911,30 @@ class POSTMasterWarehouse(http.Controller):
                 items = [items]
 
             if not items:
-                return {
-                    'status': "Failed",
-                    'code': 400,
-                    'message': "No items provided"
-                }
+                return {'status': "Failed", 'code': 400, 'message': "No items provided"}
 
             created = []
             updated = []
             failed = []
 
-            # =====================================================
-            # PROCESS EACH ITEM
-            # =====================================================
             for item in items:
                 code = item.get('code')
                 name = item.get('name')
                 company_name = item.get('company_name')
                 transit_location_name = item.get('transit_location')
-                is_transit = item.get('is_transit', '').lower() in ['yes', 'y', 'true', '1']
+                is_transit = str(item.get('is_transit', '')).lower() in ['yes', 'y', 'true', '1']
 
-                # Validasi required fields
                 if not code:
-                    failed.append({
-                        'data': item,
-                        'message': "Field 'code' is required"
-                    })
+                    failed.append({'data': item, 'message': "Field 'code' is required"})
                     continue
-
                 if not name:
-                    failed.append({
-                        'data': item,
-                        'message': "Field 'name' is required"
-                    })
+                    failed.append({'data': item, 'message': "Field 'name' is required"})
                     continue
-
                 if not company_name:
-                    failed.append({
-                        'data': item,
-                        'message': "Field 'company_name' is required"
-                    })
+                    failed.append({'data': item, 'message': "Field 'company_name' is required"})
                     continue
 
                 try:
-                    # =====================================================
-                    # VALIDASI COMPANY
-                    # =====================================================
                     company = env['res.company'].sudo().search([
                         ('name', '=', company_name)
                     ], limit=1)
@@ -1889,61 +1942,42 @@ class POSTMasterWarehouse(http.Controller):
                     if not company:
                         failed.append({
                             'data': item,
-                            'message': f"Company '{company_name}' not found in database. Please check company name."
+                            'message': f"Company '{company_name}' not found in database."
                         })
                         continue
 
-                    # =====================================================
-                    # CHECK EXISTING WAREHOUSE
-                    # =====================================================
-                    existing = env['stock.warehouse'].sudo().search([
+                    # Cari by code dulu
+                    existing = env['stock.warehouse'].sudo().with_context(
+                        active_test=False
+                    ).search([
                         ('code', '=', code),
                         ('company_id', '=', company.id)
                     ], limit=1)
 
-                    # Check duplicate name (hanya saat create)
+                    # Kalau tidak ketemu by code, cari by name
                     if not existing:
-                        duplicate_name = env['stock.warehouse'].sudo().search([
+                        existing = env['stock.warehouse'].sudo().with_context(
+                            active_test=False
+                        ).search([
                             ('name', '=', name),
                             ('company_id', '=', company.id)
                         ], limit=1)
-                        
-                        if duplicate_name:
-                            failed.append({
-                                'data': item,
-                                'company_name': company_name,
-                                'message': f"Warehouse name '{name}' already exists in company '{company_name}' with code '{duplicate_name.code}'"
-                            })
-                            continue
 
-                    # =====================================================
-                    # PREPARE VALUES
-                    # =====================================================
-                    values = {
-                        'name': name,
-                        'code': code,
-                        'company_id': company.id,
-                    }
-
-                    # =====================================================
-                    # HANDLE TRANSIT LOCATION (optional)
-                    # =====================================================
-                    if transit_location_name:
+                    # Handle transit location
+                    transit_loc = None
+                    if transit_location_name and transit_location_name.strip():
                         transit_location_name = transit_location_name.strip()
-                        
-                        # Cari berdasarkan complete_name dengan company
+
                         transit_loc = env['stock.location'].sudo().search([
                             ('complete_name', '=', transit_location_name),
                             ('company_id', '=', company.id)
                         ], limit=1)
-                        
-                        # Cari tanpa filter company sebagai fallback
+
                         if not transit_loc:
                             transit_loc = env['stock.location'].sudo().search([
                                 ('complete_name', '=', transit_location_name)
                             ], limit=1)
-                        
-                        # Cari berdasarkan name saja
+
                         if not transit_loc:
                             transit_loc = env['stock.location'].sudo().search([
                                 ('name', '=', transit_location_name),
@@ -1957,43 +1991,70 @@ class POSTMasterWarehouse(http.Controller):
                                 'message': f"Transit location '{transit_location_name}' not found for company '{company_name}'"
                             })
                             continue
-                        
-                        values['location_transit'] = transit_loc.id
 
-                    # =====================================================
-                    # CREATE OR UPDATE WAREHOUSE
-                    # =====================================================
                     if existing:
-                        # UPDATE
-                        existing.write(values)
-                        
-                        # Update usage transit location jika is_transit = yes
+                        was_archived = not existing.active
+
+                        # ✅ Unarchive dulu jika archived, pisah dari update data
+                        if not existing.active:
+                            existing.sudo().with_context(
+                                active_test=False,
+                                tracking_disable=True,
+                                mail_notrack=True
+                            ).write({'active': True})
+
+                        # ✅ Update data tanpa 'active' agar tidak trigger validasi archive
+                        update_values = {
+                            'name': name,
+                            'code': code,
+                        }
+                        if transit_loc:
+                            update_values['location_transit'] = transit_loc.id
+
+                        existing.sudo().with_context(
+                            allowed_company_ids=[company.id],
+                            active_test=False,
+                            no_recompute=True,
+                            tracking_disable=True,
+                            mail_notrack=True
+                        ).write(update_values)
+
                         if is_transit and existing.location_transit:
-                            existing.location_transit.write({'usage': 'transit'})
-                        
+                            existing.location_transit.sudo().write({'usage': 'transit'})
+
                         env.cr.commit()
-                        
+
                         updated.append({
                             'id': existing.id,
                             'code': existing.code,
                             'name': existing.name,
                             'company_id': company.id,
                             'company_name': company.name,
+                            'was_archived': was_archived,
                             'transit_location': existing.location_transit.complete_name if existing.location_transit else None,
                             'transit_location_usage': existing.location_transit.usage if existing.location_transit else None,
-                            'action': "updated"
+                            'action': "unarchived & updated" if was_archived else "updated"
                         })
+
                     else:
-                        # CREATE
-                        values['create_uid'] = uid
-                        wh = env['stock.warehouse'].sudo().create(values)
-                        
-                        # Set usage transit location jika is_transit = yes
+                        create_values = {
+                            'name': name,
+                            'code': code,
+                            'company_id': company.id,
+                            'create_uid': uid,
+                        }
+                        if transit_loc:
+                            create_values['location_transit'] = transit_loc.id
+
+                        wh = env['stock.warehouse'].sudo().with_context(
+                            allowed_company_ids=[company.id]
+                        ).create(create_values)
+
                         if is_transit and wh.location_transit:
-                            wh.location_transit.write({'usage': 'transit'})
-                        
+                            wh.location_transit.sudo().write({'usage': 'transit'})
+
                         env.cr.commit()
-                        
+
                         created.append({
                             'id': wh.id,
                             'code': wh.code,
@@ -2006,26 +2067,20 @@ class POSTMasterWarehouse(http.Controller):
                         })
 
                 except Exception as e:
-                    # Rollback untuk item ini
                     env.cr.rollback()
-                    
                     error_msg = str(e)
-                    
-                    # User-friendly error messages
+
                     if 'stock_warehouse_warehouse_name_uniq' in error_msg:
                         error_msg = f"Warehouse name '{name}' already exists in company '{company_name}'"
                     elif 'stock_warehouse_code_uniq' in error_msg or 'duplicate key' in error_msg.lower():
                         error_msg = f"Warehouse code '{code}' already exists in company '{company_name}'"
-                    
+
                     failed.append({
                         'data': item,
                         'company_name': company_name if company_name else 'Unknown',
                         'message': error_msg
                     })
 
-            # =====================================================
-            # RETURN RESPONSE
-            # =====================================================
             return {
                 'code': 200,
                 'status': "success",
@@ -2042,7 +2097,6 @@ class POSTMasterWarehouse(http.Controller):
             }
 
         except Exception as e:
-            # Rollback untuk semua transaksi
             request.env.cr.rollback()
             return {
                 'status': "Failed",

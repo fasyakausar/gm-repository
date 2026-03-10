@@ -135,8 +135,34 @@ class StockPicking(models.Model):
 
     def button_validate(self):
         """
-        Override button_validate to create TSIN automatically when validating TSOUT
+        Override button_validate:
+        1. Restrict validasi berdasarkan allowed_warehouse_ids user
+        2. Create TSIN automatically when validating TSOUT
         """
+        # =====================================================
+        # VALIDASI ALLOWED WAREHOUSE
+        # =====================================================
+        current_user = self.env.user
+        
+        # Hanya restrict jika user punya allowed_warehouse_ids
+        # Jika kosong = akses semua warehouse (superuser / admin)
+        if current_user.allowed_warehouse_ids:
+            allowed_ids = current_user.allowed_warehouse_ids.ids
+            for picking in self:
+                picking_warehouse = picking.picking_type_id.warehouse_id
+                if not picking_warehouse:
+                    continue
+                if picking_warehouse.id not in allowed_ids:
+                    raise UserError(
+                        f"Anda tidak memiliki akses untuk memvalidasi transfer di warehouse "
+                        f"'{picking_warehouse.name}'.\n\n"
+                        f"Warehouse yang diizinkan: "
+                        f"{', '.join(current_user.allowed_warehouse_ids.mapped('name'))}"
+                    )
+
+        # =====================================================
+        # VALIDASI EXISTING (internal same location, dll)
+        # =====================================================
         for picking in self:
             _logger.info(f"=== Button Validate called for {picking.name} ===")
             _logger.info(f"Picking Type: {picking.picking_type_id.name} (code: {picking.picking_type_id.code})")
@@ -144,46 +170,53 @@ class StockPicking(models.Model):
             _logger.info(f"Target Location: {picking.target_location.name if picking.target_location else 'NOT SET'}")
             _logger.info(f"Destination Location: {picking.location_dest_id.name if picking.location_dest_id else 'NOT SET'}")
             _logger.info(f"Destination Usage: {picking.location_dest_id.usage if picking.location_dest_id else 'NOT SET'}")
-            
-            # Check if the operation type is 'Internal Transfers'
+
             if picking.picking_type_id.code == 'internal':
-                # Check if the source and destination locations are the same
                 if picking.location_id.id == picking.location_dest_id.id:
-                    raise UserError("Cannot validate this operation: Source and destination locations are the same.")
-            
-            # 🔥 Auto create TSIN when validating TSOUT
-            is_tsout = picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name
-            
+                    raise UserError(
+                        "Cannot validate this operation: "
+                        "Source and destination locations are the same."
+                    )
+
+            is_tsout = (
+                picking.picking_type_id.code == 'outgoing'
+                and 'TSOUT' in picking.picking_type_id.name
+            )
             _logger.info(f"Is TSOUT: {is_tsout}")
-            
+
             if is_tsout:
                 _logger.info("=== TSOUT Detected ===")
-                
-                # Validasi target_location harus diisi
                 if not picking.target_location:
-                    raise UserError("Target Location must be set before validating TSOUT.")
-                
+                    raise UserError(
+                        "Target Location must be set before validating TSOUT."
+                    )
                 _logger.info(f"Target Location found: {picking.target_location.name}")
-                _logger.info(f"Will create TSIN from {picking.location_dest_id.name} to {picking.target_location.name}")
-        
-        # Validate semua picking first
+
+        # =====================================================
+        # VALIDATE
+        # =====================================================
         _logger.info("Calling super().button_validate()...")
         res = super(StockPicking, self).button_validate()
         _logger.info("super().button_validate() completed")
-        
-        # Setelah validate, create TSIN untuk yang TSOUT
+
+        # =====================================================
+        # AUTO CREATE TSIN SETELAH TSOUT VALIDATED
+        # =====================================================
         for picking in self:
-            is_tsout = picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name
-            
+            is_tsout = (
+                picking.picking_type_id.code == 'outgoing'
+                and 'TSOUT' in picking.picking_type_id.name
+            )
             if is_tsout and picking.target_location and picking.state == 'done':
                 _logger.info(f"Creating TSIN for validated TSOUT {picking.name}...")
                 try:
                     picking._create_ts_in_transfer()
                 except Exception as e:
                     _logger.error(f"Failed to create TSIN: {str(e)}")
-                    # Tetap tampilkan error ke user
-                    raise UserError(f"TSOUT validated but failed to create TSIN: {str(e)}")
-        
+                    raise UserError(
+                        f"TSOUT validated but failed to create TSIN: {str(e)}"
+                    )
+
         return res
 
     def _create_ts_in_transfer(self):

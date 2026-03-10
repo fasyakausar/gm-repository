@@ -1,5 +1,78 @@
-<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
+
+    <!-- ══════════════════════════════════════════════════════
+         WIZARD: Form pilih warehouse
+    ══════════════════════════════════════════════════════ -->
+    <record id="view_sale_warehouse_wizard_form" model="ir.ui.view">
+        <field name="name">sale.warehouse.wizard.form</field>
+        <field name="model">sale.warehouse.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Pilih Warehouse">
+                <sheet>
+                    <group>
+                        <field name="allowed_warehouse_ids" invisible="1"/>
+                        <field name="warehouse_id"
+                               domain="[('id', 'in', allowed_warehouse_ids)]"
+                               options="{'no_create': True, 'no_open': True}"
+                               required="1"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_confirm"
+                            string="Buat Sale Order"
+                            type="object"
+                            class="btn-primary"
+                            confirm="Apakah Anda yakin ingin membuat Sale Order dengan warehouse yang dipilih?"/>
+                    <button name="action_cancel"
+                            string="Batal"
+                            type="object"
+                            class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════
+         SERVER ACTION: Entry point tombol New di list view
+         Menangani kasus >1 warehouse dengan wizard
+    ══════════════════════════════════════════════════════ -->
+    <record id="action_sale_new_with_warehouse" model="ir.actions.server">
+        <field name="name">New Sale Order (Pilih Warehouse)</field>
+        <field name="model_id" ref="sale.model_sale_order"/>
+        <field name="binding_model_id" ref="sale.model_sale_order"/>
+        <field name="binding_view_types">list</field>
+        <field name="groups_id" eval="[(4, ref('sales_team.group_sale_salesman'))]"/>
+        <field name="state">code</field>
+        <field name="code">action = model.action_new_sale_with_warehouse()</field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════
+         RES.USERS: Tab "Allowed Warehouses" di form user
+    ══════════════════════════════════════════════════════ -->
+    <record id="view_users_form_inherit_warehouse" model="ir.ui.view">
+        <field name="name">res.users.form.warehouse</field>
+        <field name="model">res.users</field>
+        <field name="inherit_id" ref="base.view_users_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Allowed Warehouses" name="allowed_warehouses">
+                    <field name="allowed_warehouse_ids"
+                           widget="many2many_kanban"
+                           options="{'no_create': True}"
+                           colspan="2"/>
+                    <p class="text-muted fst-italic">
+                        Kosongkan jika user boleh mengakses semua warehouse.
+                    </p>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════
+         SALE ORDER FORM: barcode + warehouse (dari user)
+         Inherit sale_stock.view_order_form_inherit_sale_stock
+    ══════════════════════════════════════════════════════ -->
     <record id="view_order_form_barcode_inherit" model="ir.ui.view">
         <field name="name">sale.order.form.barcode</field>
         <field name="model">sale.order</field>
@@ -7,17 +80,21 @@
         <field name="arch" type="xml">
             <!-- Hapus warehouse_id dari posisi aslinya -->
             <xpath expr="//field[@name='warehouse_id']" position="replace"/>
-            
+
             <!-- Pindahkan warehouse_id setelah payment_term_id -->
             <xpath expr="//field[@name='payment_term_id']" position="after">
                 <field name="warehouse_id" invisible="1" readonly="state == 'sale'"/>
-                <field name="warehouse_id" options="{'no_create': True}" groups="stock.group_stock_multi_warehouses" force_save="1" readonly="state == 'sale'"/>
+                <field name="warehouse_id"
+                       options="{'no_create': True}"
+                       groups="stock.group_stock_multi_warehouses"
+                       force_save="1"
+                       readonly="state == 'sale'"/>
             </xpath>
-            
+
             <!-- Tambahkan barcode input setelah warehouse_id -->
             <xpath expr="//field[@name='payment_term_id']" position="after">
-                <field name="barcode_input" 
-                       placeholder="Scan barcode here..." 
+                <field name="barcode_input"
+                       placeholder="Scan barcode here..."
                        class="oe_inline"
                        style="font-size: 18px; font-weight: bold;"
                        invisible="state not in ['draft', 'sent']"/>
@@ -25,11 +102,15 @@
         </field>
     </record>
 
+    <!-- ══════════════════════════════════════════════════════
+         SALE ORDER FORM: domain partner + customer_info
+         Inherit sale.view_order_form (native)
+    ══════════════════════════════════════════════════════ -->
     <record id="view_order_form_partner_domain" model="ir.ui.view">
         <field name="name">sale.order.form.partner.domain</field>
         <field name="model">sale.order</field>
         <field name="inherit_id" ref="sale.view_order_form"/>
-        <field name="priority">100</field>  <!-- ← priority tinggi agar tidak tertimpa -->
+        <field name="priority">100</field>
         <field name="arch" type="xml">
             <xpath expr="//field[@name='partner_id']" position="attributes">
                 <attribute name="domain">[('gm_bp_type', '=', 'customer')]</attribute>
@@ -39,4 +120,45 @@
             </xpath>
         </field>
     </record>
+
+    <!-- ══════════════════════════════════════════════════════
+         SALE ORDER FORM: tombol "Ubah Harga" di button_box
+    ══════════════════════════════════════════════════════ -->
+    <record id="view_sale_order_form_inherit_price_btn" model="ir.ui.view">
+        <field name="name">sale.order.form.price.button</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//div[@name='button_box']/button[@name='action_view_invoice']"
+                   position="after">
+                <button name="action_open_price_wizard"
+                        type="object"
+                        class="oe_stat_button"
+                        icon="fa-tag"
+                        string="Ubah Harga"
+                        invisible="state not in ('draft', 'sent')"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ══════════════════════════════════════════════════════
+        SALE ORDER FORM: price_unit readonly di order_line
+    ══════════════════════════════════════════════════════ -->
+    <record id="view_sale_order_form_inherit_price_unit_readonly" model="ir.ui.view">
+        <field name="name">sale.order.form.price.unit.readonly</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">200</field>
+        <field name="arch" type="xml">
+            <!-- Readonly di tree view -->
+            <xpath expr="//field[@name='order_line']/tree/field[@name='price_unit']" position="replace">
+                <field name="price_unit" readonly="1" force_save="1"/>
+            </xpath>
+            <!-- Readonly di form view (popup) -->
+            <xpath expr="//field[@name='order_line']/form//field[@name='price_unit']" position="replace">
+                <field name="price_unit" readonly="1" force_save="1"/>
+            </xpath>
+        </field>
+    </record>
+
 </odoo>

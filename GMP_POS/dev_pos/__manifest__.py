@@ -56,7 +56,6 @@
         'views/hr_employee_view.xml',
         'views/loyalty_card_view.xml',
         'views/account_journal_view.xml',
-        'views/views_master_type.xml',
         'views/account_account_view.xml',
         'views/pos_orderline_views.xml',
         # 'views/inventory_stock_view.xml',
@@ -111,6 +110,7 @@
         'web.assets_backend': [
             'dev_pos/static/src/xml/button_generate_report.xml',
             'dev_pos/static/src/js/button_generate_report.js',
+            'dev_pos/static/src/js/sale_order_warehouse.js',
         ],
     },
     'license': 'LGPL-3',

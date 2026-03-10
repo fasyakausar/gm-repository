@@ -365,10 +365,29 @@ class PosSession(models.Model):
         return self._get_pos_ui_res_company(params)
     
     def _loader_params_hr_employee(self):
-        """Load HR employees for salesperson selection"""
+        """Load HR employees filtered by POS config based on basic/advanced rights"""
+        
+        basic_ids = self.config_id.basic_employee_ids.ids
+        advanced_ids = self.config_id.advanced_employee_ids.ids
+        
+        # Gabungkan semua yang terisi
+        allowed_ids = list(set(basic_ids + advanced_ids))
+        
+        # Kalau dua-duanya kosong → tidak ada yang di-load
+        if not allowed_ids:
+            domain = [('id', '=', 0)]  # Domain yang tidak akan return apapun
+        else:
+            domain = [('id', 'in', allowed_ids)]
+        
+        _logger.info(
+            f"🔍 POS '{self.config_id.name}': "
+            f"basic_ids={basic_ids}, advanced_ids={advanced_ids}, "
+            f"allowed={allowed_ids}"
+        )
+        
         return {
             'search_params': {
-                'domain': [],
+                'domain': domain,
                 'fields': ['id', 'name', 'work_email', 'mobile_phone', 'job_title', 'pin', 'image_128'],
             }
         }
@@ -384,7 +403,10 @@ class PosSession(models.Model):
                 params['search_params']['fields'],
                 limit=500
             )
-            _logger.info(f"✅ Loaded {len(records)} hr.employee records")
+            _logger.info(
+                f"✅ Loaded {len(records)} hr.employee records "
+                f"for POS '{self.config_id.name}' (ID: {self.config_id.id})"
+            )
             return records
         except Exception as e:
             _logger.error(f"❌ Error loading hr.employee: {e}")

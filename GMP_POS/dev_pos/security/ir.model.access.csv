@@ -1,12 +1,10 @@
 id,name,model_id/id,group_id/id,perm_read,perm_write,perm_create,perm_unlink
 access_log_note,access_log.note,model_log_note,base.group_user,1,1,1,1
 access_log_code_runtime,access_log.code.runtime,model_log_code_runtime,base.group_user,1,1,1,1
-access_master_type,access_master.type,model_master_type,base.group_user,1,1,1,1
 access_setting_config,access_manual.setting.config,model_setting_config,base.group_user,1,1,1,1
 access_manual_sync_mc_to_ss,access_manual.sync.mc.to.ss,model_manual_sync_mc_to_ss,base.group_user,1,1,1,1
 access_manual_sync_ss_to_mc,access_manual.sync.ss.to.mc,model_manual_sync_ss_to_mc,base.group_user,1,1,1,1
 access_token_generate,access_token.generate,model_token_generate,base.group_user,1,1,1,1
-access_list_license,access_list_license,model_list_license,base.group_user,1,1,1,1
 access_barcode_config,access_barcode.config,model_barcode_config,base.group_user,1,1,1,1
 access_print_barcode,access_print.barcode,model_print_barcode,stock.group_stock_user,1,1,1,1
 access_print_barcode_product_line,access_print.barcode.product.line,model_print_barcode_product_line,stock.group_stock_user,1,1,1,1
@@ -38,4 +36,5 @@ access_return_approval_wizard_user,return.approval.wizard.user,model_return_appr
 access_return_approval_wizard_level_1,return.approval.wizard.level.1,model_return_approval_wizard,dev_pos.group_return_approval_level_1,1,1,1,1
 access_return_approval_wizard_level_2,return.approval.wizard.level.2,model_return_approval_wizard,dev_pos.group_return_approval_level_2,1,1,1,1
 access_return_approval_wizard_manager,return.approval.wizard.manager,model_return_approval_wizard,dev_pos.group_return_approval_manager,1,1,1,1
-access_sale_price_pin_wizard,access_sale.price.pin.wizard,model_sale_price_pin_wizard,base.group_user,1,1,1,1
+access_sale_warehouse_wizard_user,sale.warehouse.wizard user,model_sale_warehouse_wizard,base.group_user,1,1,1,1
+access_sale_price_pin_wizard_user,sale.price.pin.wizard user,model_sale_price_pin_wizard,base.group_user,1,1,1,1

@@ -30,6 +30,9 @@
                                 <field name="start_date"/>
                                 <field name="end_date"/>
                                 <field name="doc_type" widget="radio"/>
+                                <field name="doc_number" 
+                                    placeholder="Contoh: GRPO/2024/001"
+                                    help="Isi untuk filter berdasarkan nomor dokumen spesifik. Kosongkan untuk menggunakan filter tanggal."/>
                             </group>
                             <group>
                                 <field name="pilihan" widget="radio"/>

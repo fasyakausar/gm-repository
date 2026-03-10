@@ -15,6 +15,12 @@ class ResPartner(models.Model):
         ('vendor', 'Vendor'),
         ('customer', 'Customer'),
     ], string='BP Type', copy=False, tracking=True)
+    gm_bp_tax = fields.Many2one(
+        'account.tax',
+        string='BP Tax',
+        domain=[('type_tax_use', '=', 'sale')],  # 'sale', 'purchase', atau 'none'
+        tracking=True
+    )
 
     @api.onchange('vit_customer_group')
     def _onchange_vit_customer_group(self):
