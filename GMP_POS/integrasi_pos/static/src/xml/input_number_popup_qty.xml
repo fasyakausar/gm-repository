@@ -3,6 +3,7 @@
     <t t-name="integrasi_pos.InputNumberPopUpQty" owl="1">
         <div class="popup popup-number custom-numpad-popup">
             <main class="body">
+
                 <div class="popup-title">
                     <h3><t t-esc="props.title or 'Input Nilai Angka'"/></h3>
                 </div>
@@ -14,36 +15,39 @@
                 </div>
 
                 <div class="input-container my-2">
-                    <!-- ✅ Display formatted value (read-only) -->
                     <input
                         type="text"
+                        t-ref="numberInput"
                         t-att-value="state.displayValue"
-                        readonly="readonly"
+                        t-on-input="onInputKeyboard"
+                        t-on-keydown="onKeyDown"
                         placeholder="0"
                         class="form-control text-center fw-bold"
                         style="font-size: 28px; letter-spacing: 1px;"
+                        inputmode="decimal"
                     />
                 </div>
 
                 <div class="numpad-grid mb-3">
-                    <button t-on-click="() => handleKeyClick('1')">1</button>
-                    <button t-on-click="() => handleKeyClick('2')">2</button>
-                    <button t-on-click="() => handleKeyClick('3')">3</button>
-                    <button t-on-click="() => handleKeyClick('4')">4</button>
-                    <button t-on-click="() => handleKeyClick('5')">5</button>
-                    <button t-on-click="() => handleKeyClick('6')">6</button>
-                    <button t-on-click="() => handleKeyClick('7')">7</button>
-                    <button t-on-click="() => handleKeyClick('8')">8</button>
-                    <button t-on-click="() => handleKeyClick('9')">9</button>
-                    <button t-on-click="() => handleKeyClick('.')">.</button>
-                    <button t-on-click="() => handleKeyClick('0')">0</button>
-                    <button t-on-click="removeLastChar">⌫</button>
+                    <button data-num="1" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">1</button>
+                    <button data-num="2" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">2</button>
+                    <button data-num="3" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">3</button>
+                    <button data-num="4" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">4</button>
+                    <button data-num="5" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">5</button>
+                    <button data-num="6" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">6</button>
+                    <button data-num="7" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">7</button>
+                    <button data-num="8" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">8</button>
+                    <button data-num="9" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">9</button>
+                    <button data-num="." t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">.</button>
+                    <button data-num="0" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">0</button>
+                    <button data-num="backspace" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">⌫</button>
                 </div>
 
                 <div class="button-container d-flex justify-content-between">
-                    <button class="btn btn-success fw-bold" t-on-click="confirmInput">OK</button>
-                    <button class="btn btn-danger fw-bold" t-on-click="cancel">Batal</button>
+                    <button class="btn btn-success fw-bold" t-on-click="confirmInput" t-on-touchstart="onConfirmTouch">OK</button>
+                    <button class="btn btn-danger fw-bold" t-on-click="cancel" t-on-touchstart="onCancelTouch">Batal</button>
                 </div>
+
             </main>
         </div>
     </t>

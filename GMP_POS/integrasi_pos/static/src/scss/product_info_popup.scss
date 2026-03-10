@@ -1,0 +1,597 @@
+// ============================================================
+// ProductInfoPopup Extended — SCSS
+// File: your_module/static/src/css/product_info_popup_patch.scss
+// ============================================================
+
+.pos-product-info-popup-extended {
+    display: flex;
+    flex-direction: column;
+    width: min(780px, 96vw);
+    max-height: 90vh;
+    border-radius: 16px;
+    overflow: hidden;
+    background: #fff;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.2);
+
+    // ── HEADER ──────────────────────────────────────────────
+    .pip-header {
+        background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+        color: #fff;
+        flex-shrink: 0;
+    }
+
+    .pip-header-inner {
+        display: flex;
+        align-items: flex-start;
+        gap: 16px;
+        padding: 20px 20px 16px;
+    }
+
+    .pip-product-image {
+        flex-shrink: 0;
+    }
+
+    .pip-img {
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        object-fit: cover;
+        border: 2px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .pip-img-placeholder {
+        width: 80px;
+        height: 80px;
+        border-radius: 12px;
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        color: rgba(255, 255, 255, 0.4);
+    }
+
+    .pip-header-info {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .pip-product-name {
+        font-size: 20px;
+        font-weight: 800;
+        color: #fff;
+        margin: 0 0 6px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .pip-product-meta {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+    }
+
+    .pip-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 2px 8px;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 600;
+        line-height: 1.6;
+
+        &.pip-badge-ref {
+            background: rgba(99, 102, 241, 0.25);
+            color: #a5b4fc;
+        }
+        &.pip-badge-barcode {
+            background: rgba(16, 185, 129, 0.2);
+            color: #6ee7b7;
+        }
+        &.pip-badge-category {
+            background: rgba(245, 158, 11, 0.2);
+            color: #fcd34d;
+        }
+        &.pip-badge-type {
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.6);
+            text-transform: capitalize;
+        }
+    }
+
+    .pip-price-block {
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin-bottom: 8px;
+    }
+
+    .pip-price-main {
+        font-size: 26px;
+        font-weight: 900;
+        color: #38bdf8;
+        line-height: 1;
+    }
+
+    .pip-price-label {
+        font-size: 11px;
+        color: rgba(255, 255, 255, 0.45);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .pip-stock-summary {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .pip-stock-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 10px;
+        border-radius: 99px;
+        font-size: 12px;
+        font-weight: 600;
+
+        &.in-stock {
+            background: rgba(34, 197, 94, 0.2);
+            color: #86efac;
+        }
+        &.out-stock {
+            background: rgba(239, 68, 68, 0.2);
+            color: #fca5a5;
+        }
+        &.forecasted {
+            background: rgba(148, 163, 184, 0.15);
+            color: #94a3b8;
+        }
+    }
+
+    .pip-close-btn {
+        flex-shrink: 0;
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(255, 255, 255, 0.1);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        color: rgba(255, 255, 255, 0.7);
+        font-size: 14px;
+        transition: background 0.15s;
+
+        &:hover {
+            background: rgba(255, 255, 255, 0.2);
+            color: #fff;
+        }
+    }
+
+    // ── TABS ────────────────────────────────────────────────
+    .pip-tabs {
+        display: flex;
+        padding: 0 20px;
+        gap: 2px;
+    }
+
+    .pip-tab {
+        flex: 1;
+        padding: 10px 12px;
+        background: transparent;
+        border: none;
+        border-bottom: 3px solid transparent;
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+
+        &:hover {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        &.active {
+            color: #38bdf8;
+            border-bottom-color: #38bdf8;
+        }
+    }
+
+    .pip-tab-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 18px;
+        height: 18px;
+        padding: 0 4px;
+        border-radius: 99px;
+        font-size: 10px;
+        font-weight: 700;
+        margin-left: 4px;
+
+        &.green {
+            background: rgba(34, 197, 94, 0.25);
+            color: #86efac;
+        }
+        &.red {
+            background: rgba(239, 68, 68, 0.25);
+            color: #fca5a5;
+        }
+    }
+
+    // ── BODY ────────────────────────────────────────────────
+    .pip-body {
+        flex: 1;
+        overflow-y: auto;
+        padding: 0;
+        background: #f8fafc;
+        position: relative;
+    }
+
+    .pip-loading {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 40px;
+        color: #94a3b8;
+        font-size: 14px;
+    }
+
+    .pip-tab-content {
+        padding: 16px 20px;
+    }
+
+    .pip-section {
+        background: #fff;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        padding: 14px 16px;
+        margin-bottom: 12px;
+    }
+
+    .pip-section-title {
+        font-size: 11px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #64748b;
+        margin: 0 0 12px;
+        display: flex;
+        align-items: center;
+    }
+
+    .pip-description {
+        font-size: 13px;
+        color: #475569;
+        line-height: 1.6;
+        margin: 0;
+        white-space: pre-wrap;
+    }
+
+    // Detail grid
+    .pip-detail-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+
+    .pip-detail-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 6px 0;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 13px;
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+
+    .pip-detail-label {
+        color: #64748b;
+    }
+
+    .pip-detail-value {
+        font-weight: 600;
+        color: #1e293b;
+        text-align: right;
+    }
+
+    // Variant
+    .pip-variant-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 10px;
+        padding: 6px 0;
+        border-bottom: 1px solid #f1f5f9;
+        font-size: 13px;
+
+        &:last-child {
+            border-bottom: none;
+        }
+    }
+
+    .pip-variant-label {
+        flex-shrink: 0;
+        min-width: 100px;
+        color: #64748b;
+        font-weight: 500;
+    }
+
+    .pip-variant-values {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+    }
+
+    .pip-attr-chip {
+        display: inline-block;
+        padding: 3px 10px;
+        background: #e0f2fe;
+        color: #0369a1;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+
+        &:hover {
+            background: #bae6fd;
+        }
+    }
+
+    // Tags
+    .pip-tags-wrap {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
+
+    .pip-tag-chip {
+        padding: 3px 10px;
+        background: #f1f5f9;
+        color: #475569;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    // ── STOCK TAB ───────────────────────────────────────────
+    .pip-stock-cards {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .pip-stock-card {
+        background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
+        border-radius: 10px;
+        padding: 14px;
+        text-align: center;
+        color: #fff;
+
+        &.forecasted {
+            background: linear-gradient(135deg, #64748b 0%, #475569 100%);
+        }
+
+        &.info {
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        }
+    }
+
+    .pip-stock-card-value {
+        display: block;
+        font-size: 28px;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 4px;
+    }
+
+    .pip-stock-card-label {
+        font-size: 11px;
+        opacity: 0.85;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .pip-warehouse-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .pip-warehouse-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        background: #f8fafc;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .pip-warehouse-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: #334155;
+    }
+
+    .pip-warehouse-qty {
+        display: flex;
+        gap: 6px;
+    }
+
+    .pip-qty-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        padding: 4px 10px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 700;
+
+        small {
+            font-size: 10px;
+            font-weight: 400;
+            opacity: 0.7;
+        }
+
+        .pip-qty-label {
+            font-size: 10px;
+            font-weight: 400;
+            opacity: 0.7;
+            margin-left: 2px;
+        }
+
+        &.available {
+            background: #dcfce7;
+            color: #166534;
+        }
+        &.zero {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        &.forecasted {
+            background: #f1f5f9;
+            color: #475569;
+        }
+    }
+
+    // Supplier
+    .pip-supplier-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .pip-supplier-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 12px;
+        background: #f8fafc;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+    }
+
+    .pip-supplier-name {
+        font-size: 13px;
+        font-weight: 600;
+        color: #334155;
+    }
+
+    .pip-supplier-meta {
+        display: flex;
+        gap: 6px;
+    }
+
+    .pip-supplier-badge {
+        display: inline-flex;
+        align-items: center;
+        padding: 3px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        font-weight: 600;
+
+        &.delay {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        &.price {
+            background: #e0f2fe;
+            color: #075985;
+        }
+    }
+
+    // ── FINANCIAL TAB ───────────────────────────────────────
+    .pip-pricelist-list {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .pip-pricelist-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 10px;
+        background: #f8fafc;
+        border-radius: 6px;
+        border: 1px solid #f1f5f9;
+        font-size: 13px;
+    }
+
+    .pip-pricelist-name {
+        color: #475569;
+    }
+
+    .pip-pricelist-price {
+        font-weight: 700;
+        color: #0ea5e9;
+    }
+
+    // ── ORDER TAB ───────────────────────────────────────────
+    .pip-percent-badge {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 2px 8px;
+        background: #f0fdf4;
+        color: #166534;
+        border-radius: 99px;
+        font-size: 11px;
+        font-weight: 700;
+    }
+
+    // ── EMPTY STATE ─────────────────────────────────────────
+    .pip-empty-state {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+        padding: 40px;
+        color: #94a3b8;
+        font-size: 14px;
+        text-align: center;
+    }
+
+    // ── FOOTER ──────────────────────────────────────────────
+    .pip-footer {
+        display: flex;
+        justify-content: flex-end;
+        padding: 12px 20px;
+        background: #fff;
+        border-top: 1px solid #e2e8f0;
+        flex-shrink: 0;
+    }
+
+    .pip-btn-secondary {
+        padding: 8px 20px;
+        border-radius: 8px;
+        border: 1px solid #e2e8f0;
+        background: #fff;
+        color: #64748b;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.15s;
+
+        &:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            color: #334155;
+        }
+    }
+}

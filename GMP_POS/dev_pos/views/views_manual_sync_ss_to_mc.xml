@@ -54,13 +54,5 @@
         id="synchronize_menu"
         name="Manual Integration"
         sequence="1"/> -->
-
-    <!-- Child Menu -->
-    <menuitem
-        id="synchronize_ss_to_mcmenu"
-        name="Store-Master Console"
-        action="action_synchronize_ss_to_mc"
-        parent="setting_config_menu_root"
-        sequence="1"/>
   </data>
 </odoo>

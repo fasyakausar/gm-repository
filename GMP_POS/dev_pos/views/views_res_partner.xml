@@ -9,6 +9,7 @@
         <xpath expr="//field[@name='category_id']" position="after">
             <field name="gm_bp_type"/>
             <field name="customer_code" readonly="1"/>
+            <field name="gm_bp_tax"/>
             <field name="vit_customer_group"/>
             <field name="is_integrated" readonly="1"/>
             <field name="index_store" widget="many2many_tags" readonly="1"/>

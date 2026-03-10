@@ -624,10 +624,14 @@ class PaymentInvoiceAPI(http.Controller):
                     limit=1
                 )
 
-                location_id = picking.location_id.id if picking else False
-                location = (
-                    picking.location_id.complete_name if picking else ''
-                )
+                if picking:
+                    location_id = picking.location_id.id
+                    location = picking.location_id.complete_name
+                else:
+                    # Fallback ke warehouse stock location dari session config
+                    lot_stock = order.session_id.config_id.warehouse_id.lot_stock_id
+                    location_id = lot_stock.id if lot_stock else False
+                    location = lot_stock.complete_name if lot_stock else ''
 
                 # =================================================
                 # ORDER REFERENCE (from customer_note)
@@ -1363,7 +1367,7 @@ class MasterPoSCategoryItem(http.Controller):
         
 class MasterCustomerAPI(http.Controller):
     @http.route(['/api/master_customer/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, customer_code=None, is_integrated=None, company_id=None, **params):
+    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, customer_code=None, is_integrated=None, company_id=None, active=None, **params):
         try:
             check_authorization()
 
@@ -1377,7 +1381,7 @@ class MasterCustomerAPI(http.Controller):
             # Build domain filters
             if customer_code:
                 domain += [('customer_code', '=', str(customer_code))]
-            
+
             if company_id is not None:
                 try:
                     company_id_int = int(company_id)
@@ -1390,66 +1394,110 @@ class MasterCustomerAPI(http.Controller):
                 created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
 
                 domain += [('create_date', '>=', created_date_from.strftime(date_format)),
-                        ('create_date', '<=', created_date_to.strftime(date_format))]
-            
-            # Fix: Properly handle is_integrated filter
+                           ('create_date', '<=', created_date_to.strftime(date_format))]
+
             # Fix is_integrated filter
             if is_integrated is not None:
                 is_integrated_bool = str(is_integrated).lower() == 'true'
                 if is_integrated_bool:
                     domain += [('is_integrated', '=', True)]
                 else:
-                    domain += [('is_integrated', '!=', True)]  # ✅ Capture False AND NULL
+                    domain += [('is_integrated', '!=', True)]  # Capture False AND NULL
 
-            # ✅ Fetch data with pagination - ALWAYS use domain
+            # ✅ Filter active/archive
+            # Default hanya tampilkan yang active=True
+            # Jika active=false → tampilkan yang diarchive
+            # Jika active=all  → tampilkan semua
+            if active is not None:
+                active_str = str(active).lower()
+                if active_str == 'all':
+                    domain += ['|', ('active', '=', True), ('active', '=', False)]
+                elif active_str in ['false', '0', 'no']:
+                    domain += [('active', '=', False)]
+                else:
+                    domain += [('active', '=', True)]
+            else:
+                domain += [('active', '=', True)]  # Default: hanya tampilkan yang aktif
+
+            # Fetch data with pagination
             customers_data, total_records = paginate_records('res.partner', domain, pageSize, page)
 
             data_master_customer = []
             jakarta_tz = pytz.timezone('Asia/Jakarta')
-            
+
             for customer in customers_data:
                 create_date_utc = customer.create_date
                 create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
-                
+
                 customer_data = {
                     'id': customer.id,
                     'create_date': str(create_date_jakarta),
+                    'customer_code': customer.customer_code if customer.customer_code else "",
                     'name': customer.name,
+
+                    # ✅ Alamat lengkap
                     'street': customer.street if customer.street else "",
+                    'street2': customer.street2 if customer.street2 else "",           # ✅ TAMBAHAN
+                    'city': customer.city if customer.city else "",                     # ✅ TAMBAHAN
+                    'state_id': customer.state_id.id if customer.state_id else None,   # ✅ TAMBAHAN
+                    'state_name': customer.state_id.name if customer.state_id else "", # ✅ TAMBAHAN
+                    'country_id': customer.country_id.id if customer.country_id else None,   # ✅ TAMBAHAN
+                    'country_name': customer.country_id.name if customer.country_id else "", # ✅ TAMBAHAN
+                    'zip': customer.zip if customer.zip else "",                        # ✅ TAMBAHAN
+
+                    # Kontak
                     'phone': customer.phone if customer.phone else "",
                     'mobile': customer.mobile if customer.mobile else "",
                     'email': customer.email if customer.email else "",
                     'website': customer.website if customer.website else "",
                     'title': customer.title.name if customer.title else "",
+
+                    # ✅ BP Type & Tax
+                    'gm_bp_type': customer.gm_bp_type if customer.gm_bp_type else "",          # ✅ TAMBAHAN
+                    'gm_bp_tax_id': customer.gm_bp_tax.id if customer.gm_bp_tax else None,     # ✅ TAMBAHAN
+                    'gm_bp_tax': customer.gm_bp_tax.name if customer.gm_bp_tax else "",        # ✅ TAMBAHAN
+
+                    # ✅ Customer Group
+                    'vit_customer_group_id': customer.vit_customer_group.id if customer.vit_customer_group else None,     # ✅ TAMBAHAN
+                    'vit_customer_group': customer.vit_customer_group.name if customer.vit_customer_group else "",        # ✅ TAMBAHAN
+
+                    # Status
                     'is_integrated': customer.is_integrated,
+                    'active': customer.active,                                          # ✅ TAMBAHAN
                     'customer_rank': customer.customer_rank,
                     'supplier_rank': customer.supplier_rank,
+
+                    # Pajak
                     'tax_id': customer.vat,
                     'l10n_id_pkp': customer.l10n_id_pkp,
+
+                    # Pricelist
                     'property_product_pricelist_id': customer.property_product_pricelist.id if customer.property_product_pricelist else None,
                     'property_product_pricelist': customer.property_product_pricelist.name if customer.property_product_pricelist else "",
+
+                    # Akun
                     'property_account_receivable_id': customer.property_account_receivable_id.id if customer.property_account_receivable_id else None,
                     'property_account_receivable': customer.property_account_receivable_id.name if customer.property_account_receivable_id else "",
                     'property_account_payable_id': customer.property_account_payable_id.id if customer.property_account_payable_id else None,
                     'property_account_payable': customer.property_account_payable_id.name if customer.property_account_payable_id else "",
+
+                    # Stock location
                     'property_stock_customer_id': customer.property_stock_customer.id if customer.property_stock_customer else None,
                     'property_stock_customer': customer.property_stock_customer.name if customer.property_stock_customer else "",
                     'property_stock_supplier_id': customer.property_stock_supplier.id if customer.property_stock_supplier else None,
                     'property_stock_supplier': customer.property_stock_supplier.name if customer.property_stock_supplier else "",
+
+                    # Company
                     'company_id': customer.company_id.id if customer.company_id else None,
                     'company_name': customer.company_id.name if customer.company_id else "",
                 }
-                
-                # ✅ Hanya tambahkan customer_code jika ada isinya
-                if customer.customer_code:
-                    customer_data['customer_code'] = customer.customer_code
-                
+
                 data_master_customer.append(customer_data)
 
             total_pages = (total_records + pageSize - 1) // pageSize
 
             return serialize_response(data_master_customer, total_records, total_pages)
-        
+
         except ValidationError as ve:
             error_response = {
                 'error': 'One or more required parameters are missing.',
@@ -1626,8 +1674,19 @@ class MasterOperationType(http.Controller):
             return serialize_error_response(str(e))
         
 class MasterProductItemAPI(http.Controller):
+
     @http.route(['/api/master_item/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def master_product_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, q=None, is_integrated=None, company_id=None, **params):
+    def master_product_get(
+        self,
+        createdDateFrom=None,
+        createdDateTo=None,
+        pageSize=200,
+        page=1,
+        q=None,
+        is_integrated=None,
+        company_id=None,
+        **params
+    ):
         try:
             page = int(page)
             if page == 0:
@@ -1649,33 +1708,41 @@ class MasterProductItemAPI(http.Controller):
                     return serialize_response([], 0, 0)
 
             if createdDateFrom or createdDateTo:
-                created_date_from = fields.Date.from_string(createdDateFrom) if createdDateFrom else fields.Date.today()
-                created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
+                created_date_from = (
+                    fields.Date.from_string(createdDateFrom)
+                    if createdDateFrom
+                    else fields.Date.today()
+                )
+                created_date_to = (
+                    fields.Date.from_string(createdDateTo)
+                    if createdDateTo
+                    else fields.Date.today()
+                )
                 domain += [
                     ('create_date', '>=', created_date_from.strftime(date_format)),
-                    ('create_date', '<=', created_date_to.strftime(date_format))
+                    ('create_date', '<=', created_date_to.strftime(date_format)),
                 ]
-                
+
             if is_integrated is not None:
                 is_integrated_bool = str(is_integrated).lower() == 'true'
                 domain.append(('is_integrated', '=', is_integrated_bool))
 
             # Calculate offset for pagination
             offset = (page - 1) * pageSize
-            
+
             # Get total count first (efficient)
             ProductTemplate = request.env['product.template'].sudo()
             total_records = ProductTemplate.search_count(domain)
-            
+
             if total_records == 0:
                 return serialize_response([], 0, 0)
 
-            # Fetch only required page with prefetch
+            # Fetch only required page with explicit ordering
             product_data = ProductTemplate.search(
-                domain, 
-                limit=pageSize, 
+                domain,
+                limit=pageSize,
                 offset=offset,
-                order='id desc'  # Add explicit ordering for consistency
+                order='id desc',
             )
 
             # Prefetch related fields to avoid N+1 queries
@@ -1688,59 +1755,74 @@ class MasterProductItemAPI(http.Controller):
 
             # Prepare timezone conversion once
             jakarta_tz = pytz.timezone('Asia/Jakarta')
-            
+
             # Build response data
             data_master_product = []
             for product in product_data:
-                # Convert timezone
-                create_date_jakarta = pytz.utc.localize(product.create_date).astimezone(jakarta_tz)
-                
-                # Use list comprehension (faster than loops)
+                # Convert timezone safely
+                if product.create_date:
+                    create_date_jakarta = pytz.utc.localize(product.create_date).astimezone(jakarta_tz)
+                    create_date_str = str(create_date_jakarta)
+                else:
+                    create_date_str = None
+
                 product_dict = {
                     'id': product.id,
                     'product_name': product.name,
                     'product_code': product.default_code,
                     'detailed_type': product.detailed_type,
                     'invoice_policy': product.invoice_policy,
-                    'uom_id': product.uom_id.id,
-                    'uom': product.uom_id.name,
-                    'uom_po_id': product.uom_po_id.id,
-                    'uom_po': product.uom_po_id.name,
+                    'uom_id': product.uom_id.id if product.uom_id else None,
+                    'uom': product.uom_id.name if product.uom_id else None,
+                    'uom_po_id': product.uom_po_id.id if product.uom_po_id else None,
+                    'uom_po': product.uom_po_id.name if product.uom_po_id else None,
                     'to_weight': product.to_weight,
                     'list_price': product.list_price,
                     'standard_price': product.standard_price,
-                    'categ_id': product.categ_id.id,
-                    'categ': product.categ_id.complete_name,
-                    'pos_categ_ids': [{'id': pc.id, 'name': pc.name} for pc in product.pos_categ_ids],
-                    'taxes_id': [{'id': t.id, 'name': t.name} for t in product.taxes_id],
-                    'supplier_taxes_id': [{'id': st.id, 'name': st.name} for st in product.supplier_taxes_id],
-                    'create_date': str(create_date_jakarta),
-                    'is_integrated': product.is_integrated,
-                    'vit_sub_div': product.vit_sub_div,
-                    'vit_item_kel': product.vit_item_kel,
-                    'vit_item_type': product.vit_item_type,
-                    'vit_item_brand': product.brand,
-                    'brand': product.brand,
-                    'gm_sub_category': product.get('gm_sub_category'),
-                    'gm_class': product.get('gm_class'),
-                    'gm_manufacturer': product.get('gm_manufacturer'),
-                    'company_id': product.company_id.id,
-                    'company_name': product.company_id.name
+                    'categ_id': product.categ_id.id if product.categ_id else None,
+                    'categ': product.categ_id.complete_name if product.categ_id else None,
+                    'pos_categ_ids': [
+                        {'id': pc.id, 'name': pc.name} for pc in product.pos_categ_ids
+                    ],
+                    'taxes_id': [
+                        {'id': t.id, 'name': t.name} for t in product.taxes_id
+                    ],
+                    'supplier_taxes_id': [
+                        {'id': st.id, 'name': st.name} for st in product.supplier_taxes_id
+                    ],
+                    'create_date': create_date_str,
+                    'is_integrated': getattr(product, 'is_integrated', None),
+                    'vit_sub_div': getattr(product, 'vit_sub_div', None),
+                    'vit_item_kel': getattr(product, 'vit_item_kel', None),
+                    'vit_item_type': getattr(product, 'vit_item_type', None),
+                    'vit_item_brand': getattr(product, 'brand', None),
+                    'brand': getattr(product, 'brand', None),
+                    'gm_sub_category': getattr(product, 'gm_sub_category', None),  # FIX: was product.get(...)
+                    'gm_class': getattr(product, 'gm_class', None),                # FIX: was product.get(...)
+                    'gm_manufacturer': getattr(product, 'gm_manufacturer', None),  # FIX: was product.get(...)
+                    'company_id': product.company_id.id if product.company_id else None,
+                    'company_name': product.company_id.name if product.company_id else None,
                 }
                 data_master_product.append(product_dict)
 
             total_pages = (total_records + pageSize - 1) // pageSize
 
             return serialize_response(data_master_product, total_records, total_pages)
-        
+
         except ValidationError as ve:
+            _logger.warning("ValidationError in master_product_get: %s", str(ve))
             error_response = {
                 'error': 'One or more required parameters are missing.',
-                'status': 500
+                'status': 500,
             }
-            return http.Response(json.dumps(error_response), content_type='application/json', status=500)
+            return http.Response(
+                json.dumps(error_response),
+                content_type='application/json',
+                status=500,
+            )
 
         except Exception as e:
+            _logger.exception("Unexpected error in master_product_get: %s", str(e))
             return serialize_error_response(str(e))
         
 class MasterStockTypeAPI(http.Controller):

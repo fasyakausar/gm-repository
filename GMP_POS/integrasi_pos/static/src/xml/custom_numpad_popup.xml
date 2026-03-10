@@ -3,14 +3,17 @@
     <t t-name="integrasi_pos.CustomNumpadPopUp" owl="1">
         <div class="popup popup-number custom-numpad-popup">
             <main class="body">
+
                 <!-- Input PIN -->
                 <div class="input-container">
                     <input
                         type="password"
                         t-att-value="state.displayValue"
                         t-on-input="handleTyping"
+                        t-on-keydown="onKeyDown"
                         t-ref="pinInput"
                         placeholder="Enter PIN"
+                        inputmode="numeric"
                     />
                 </div>
 
@@ -24,27 +27,28 @@
                     ></textarea>
                 </div>
 
-                <!-- Numpad Grid - sekarang di tengah -->
+                <!-- Numpad Grid -->
                 <div class="numpad-grid">
-                    <button t-on-click="() => this.addNumber('1')">1</button>
-                    <button t-on-click="() => this.addNumber('2')">2</button>
-                    <button t-on-click="() => this.addNumber('3')">3</button>
-                    <button t-on-click="() => this.addNumber('4')">4</button>
-                    <button t-on-click="() => this.addNumber('5')">5</button>
-                    <button t-on-click="() => this.addNumber('6')">6</button>
-                    <button t-on-click="() => this.addNumber('7')">7</button>
-                    <button t-on-click="() => this.addNumber('8')">8</button>
-                    <button t-on-click="() => this.addNumber('9')">9</button>
-                    <button t-on-click="() => this.addNumber('.')">.</button>
-                    <button t-on-click="() => this.addNumber('0')">0</button>
-                    <button t-on-click="removeLastChar">⌫</button>
+                    <button data-num="1" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">1</button>
+                    <button data-num="2" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">2</button>
+                    <button data-num="3" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">3</button>
+                    <button data-num="4" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">4</button>
+                    <button data-num="5" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">5</button>
+                    <button data-num="6" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">6</button>
+                    <button data-num="7" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">7</button>
+                    <button data-num="8" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">8</button>
+                    <button data-num="9" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">9</button>
+                    <button data-num="." t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">.</button>
+                    <button data-num="0" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">0</button>
+                    <button data-num="backspace" t-on-click="onNumpadClick" t-on-touchstart="onNumpadTouch">⌫</button>
                 </div>
 
                 <!-- Action Buttons -->
                 <div class="button-container">
-                    <button class="confirm" t-on-click="confirmInput">Ok</button>
-                    <button class="cancel" t-on-click="cancel">Discard</button>
+                    <button class="confirm" t-on-click="confirmInput" t-on-touchstart="onConfirmTouch">Ok</button>
+                    <button class="cancel" t-on-click="cancel" t-on-touchstart="onCancelTouch">Discard</button>
                 </div>
+
             </main>
         </div>
     </t>

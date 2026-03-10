@@ -3,7 +3,7 @@
 import { AbstractAwaitablePopup } from "@point_of_sale/app/popup/abstract_awaitable_popup";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
-import { useState, useRef, onMounted } from "@odoo/owl";
+import { useState, useRef, onMounted, onWillUnmount } from "@odoo/owl";
 import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 
 export class CustomNumpadPopUp extends AbstractAwaitablePopup {
@@ -17,14 +17,38 @@ export class CustomNumpadPopUp extends AbstractAwaitablePopup {
         this.rpc = useService("rpc");
         this.inputRef = useRef("pinInput");
 
-        onMounted(() => {
-            this.inputRef.el?.focus();
-        });
-
         this.state = useState({
             inputValue: "",
             displayValue: "",
             note: "",
+        });
+
+        // Keyboard handler untuk PIN
+        this._onKeyDown = (ev) => {
+            if (ev.defaultPrevented) return;
+            const key = ev.key;
+            if (key >= "0" && key <= "9") {
+                ev.preventDefault();
+                this.addNumber(key);
+            } else if (key === "Backspace") {
+                ev.preventDefault();
+                this.removeLastChar();
+            } else if (key === "Enter") {
+                ev.preventDefault();
+                this.confirmInput();
+            } else if (key === "Escape") {
+                ev.preventDefault();
+                this.cancel();
+            }
+        };
+
+        onMounted(() => {
+            this.inputRef.el?.focus();
+            window.addEventListener("keydown", this._onKeyDown);
+        });
+
+        onWillUnmount(() => {
+            window.removeEventListener("keydown", this._onKeyDown);
         });
 
         this.handleTyping = (ev) => {
@@ -41,10 +65,65 @@ export class CustomNumpadPopUp extends AbstractAwaitablePopup {
         };
     }
 
+    // ─── Numpad: handler utama via data-num ───────────────────────
+
+    /**
+     * Handler untuk click (mouse/desktop)
+     * Membaca nilai dari attribute data-num pada button
+     */
+    onNumpadClick(ev) {
+        const num = ev.currentTarget.dataset.num;
+        if (!num) return;
+        if (num === "backspace") {
+            this.removeLastChar();
+        } else {
+            this.addNumber(num);
+        }
+    }
+
+    /**
+     * Handler untuk touchstart (touchscreen)
+     * preventDefault() mencegah ghost click yang muncul ~300ms setelah touch
+     */
+    onNumpadTouch(ev) {
+        ev.preventDefault();
+        const num = ev.currentTarget.dataset.num;
+        if (!num) return;
+        if (num === "backspace") {
+            this.removeLastChar();
+        } else {
+            this.addNumber(num);
+        }
+    }
+
+    // ─── Action buttons touch handlers ───────────────────────────
+
+    onConfirmTouch(ev) {
+        ev.preventDefault();
+        this.confirmInput();
+    }
+
+    onCancelTouch(ev) {
+        ev.preventDefault();
+        this.cancel();
+    }
+
+    // ─── Core logic ───────────────────────────────────────────────
+
     addNumber(num) {
         if (this.state.inputValue.length >= 4) return;
         this.state.inputValue += num;
         this.state.displayValue += "*";
+    }
+
+    onKeyDown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.confirmInput();
+        } else if (ev.key === "Escape") {
+            ev.preventDefault();
+            this.cancel();
+        }
     }
 
     removeLastChar() {
