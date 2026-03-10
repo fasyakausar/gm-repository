@@ -18,22 +18,20 @@ patch(PosStore.prototype, {
                     manager_validation: configSettings.manager_validation,
                     validate_discount: configSettings.validate_discount,
                     validate_payment: configSettings.validate_payment,
-                    // ✅ ROUNDING CONFIG
                     enable_auto_rounding: configSettings.enable_auto_rounding,
                     rounding_value: configSettings.rounding_value,
                     rounding_product_id: configSettings.rounding_product_id,
                 });
-                
+
                 // ✅ VALIDATE ROUNDING CONFIGURATION
                 if (configSettings.enable_auto_rounding) {
                     console.group("🔄 AUTO ROUNDING CONFIGURATION");
                     console.log("✅ Auto Rounding: ENABLED");
                     console.log(`💯 Rounding Value: ${configSettings.rounding_value}`);
-                    
+
                     if (configSettings.rounding_product_id) {
                         console.log(`📦 Rounding Product: ${configSettings.rounding_product_id.name} (ID: ${configSettings.rounding_product_id.id})`);
-                        
-                        // Validate product exists in database
+
                         const roundingProduct = this.db.get_product_by_id(configSettings.rounding_product_id.id);
                         if (roundingProduct) {
                             console.log(`✅ Rounding product found in POS database`);
@@ -82,87 +80,10 @@ patch(PosStore.prototype, {
                 console.log("✅ Barcode Config loaded:", {
                     digit_awal: this.config.digit_awal,
                     digit_akhir: this.config.digit_akhir,
-                    prefix_timbangan: this.config.prefix_timbangan
+                    prefix_timbangan: this.config.prefix_timbangan,
                 });
             } else {
                 console.warn("⚠️ No barcode config loaded");
-            }
-
-            // 🗓️ Loyalty Schedules
-            this.loyalty_schedules = [];
-            const rawSchedules = loadedData["loyalty.program.schedule"];
-            if (Array.isArray(rawSchedules)) {
-                this.loyalty_schedules = rawSchedules;
-                console.log(`✅ Loaded ${this.loyalty_schedules.length} loyalty schedules`);
-            } else {
-                console.warn("⚠️ No loyalty schedules loaded");
-            }
-
-            // 👥 Loyalty Members
-            this.loyalty_members = [];
-            const rawMembers = loadedData["loyalty.member"];
-            if (Array.isArray(rawMembers)) {
-                this.loyalty_members = rawMembers;
-                console.log(`✅ Loaded ${this.loyalty_members.length} loyalty members`);
-            } else {
-                console.warn("⚠️ No loyalty members loaded");
-            }
-
-            // 🏷️ Loyalty Programs
-            this.programs = [];
-            const rawPrograms = loadedData["loyalty.program"];
-            if (Array.isArray(rawPrograms)) {
-                this.programs = rawPrograms;
-
-                // Set program active status based on schedules
-                const validProgramIds = new Set();
-                for (const schedule of this.loyalty_schedules) {
-                    try {
-                        let pid;
-                        if (Array.isArray(schedule.program_id)) {
-                            pid = schedule.program_id[0];
-                        } else if (typeof schedule.program_id === "object" && schedule.program_id !== null) {
-                            pid = schedule.program_id.id;
-                        } else {
-                            pid = schedule.program_id;
-                        }
-                        
-                        if (pid) {
-                            validProgramIds.add(Number(pid));
-                        }
-                    } catch (e) {
-                        console.error("❌ Error processing schedule:", schedule, e);
-                    }
-                }
-
-                // Apply active status to programs
-                for (const program of this.programs) {
-                    program.active = validProgramIds.has(Number(program.id));
-                }
-
-                console.log(`✅ Loaded ${this.programs.length} loyalty programs (${validProgramIds.size} active)`);
-            } else {
-                console.warn("⚠️ No loyalty programs loaded");
-            }
-
-            // 🎯 Loyalty Rules
-            this.loyalty_rules = [];
-            const rawRules = loadedData["loyalty.rule"];
-            if (Array.isArray(rawRules)) {
-                this.loyalty_rules = rawRules;
-                console.log(`✅ Loaded ${this.loyalty_rules.length} loyalty rules`);
-            } else {
-                console.warn("⚠️ No loyalty rules loaded");
-            }
-
-            // 🎁 Loyalty Rewards
-            this.loyalty_rewards = [];
-            const rawRewards = loadedData["loyalty.reward"];
-            if (Array.isArray(rawRewards)) {
-                this.loyalty_rewards = rawRewards;
-                console.log(`✅ Loaded ${this.loyalty_rewards.length} loyalty rewards`);
-            } else {
-                console.warn("⚠️ No loyalty rewards loaded");
             }
 
             // 👤 HR Employee (Salesperson)
@@ -187,35 +108,47 @@ patch(PosStore.prototype, {
 
             // 👤 Patch Partner Categories
             const rawPartners = loadedData["res.partner"] || [];
+            const currentCompanyId = this.company?.id;
+
+            // Dedup by id
             const partnerCategoryMap = {};
-            
+            const seenPartnerIds = new Set();
+
             for (const p of rawPartners) {
-                try {
-                    if (p && p.id) {
-                        partnerCategoryMap[p.id] = Array.isArray(p.category_id) ? p.category_id : [];
-                    }
-                } catch (e) {
-                    console.error("❌ Error processing partner categories:", p, e);
-                }
+                if (!p || !p.id || seenPartnerIds.has(p.id)) continue;
+                seenPartnerIds.add(p.id);
+                partnerCategoryMap[p.id] = Array.isArray(p.category_id) ? p.category_id : [];
             }
 
-            // Apply category_id to partners
+            console.log(
+                `👤 rawPartners: ${rawPartners.length}, unique: ${seenPartnerIds.size} ` +
+                `(company=${currentCompanyId})`
+            );
+
+            // Apply category_id + dedup this.partners by id
             if (this.partners) {
+                const seenIds = new Set();
+                this.partners = this.partners.filter(p => {
+                    if (seenIds.has(p.id)) return false;
+                    seenIds.add(p.id);
+                    return true;
+                });
+
                 let categorizedCount = 0;
                 for (const p of this.partners) {
                     try {
-                        if (partnerCategoryMap[p.id]) {
+                        if (partnerCategoryMap[p.id] !== undefined) {
                             p.category_id = partnerCategoryMap[p.id];
-                            if (p.category_id.length > 0) {
-                                categorizedCount++;
-                            }
+                            if (p.category_id.length > 0) categorizedCount++;
                         }
                     } catch (e) {
                         console.error("❌ Error patching partner:", p, e);
                     }
                 }
-
-                console.log(`✅ Patched ${this.partners.length} partners (${categorizedCount} have categories)`);
+                console.log(
+                    `✅ Patched ${this.partners.length} partners ` +
+                    `(${categorizedCount} have categories)`
+                );
             } else {
                 console.warn("⚠️ No partners to patch");
             }
@@ -243,10 +176,10 @@ patch(PosStore.prototype, {
             // ✅ Validate Payment Methods have gm_is_card field
             if (this.payment_methods && this.payment_methods.length > 0) {
                 console.group("💳 VALIDATING PAYMENT METHODS");
-                
+
                 let cardMethodsCount = 0;
                 let missingFieldCount = 0;
-                
+
                 for (const pm of this.payment_methods) {
                     if (pm.gm_is_card === true) {
                         cardMethodsCount++;
@@ -258,17 +191,17 @@ patch(PosStore.prototype, {
                         console.warn(`  ⚠️ Missing gm_is_card field: ${pm.name} (ID: ${pm.id})`);
                     }
                 }
-                
+
                 console.log(`📊 Payment Method Summary:`);
                 console.log(`   Total: ${this.payment_methods.length}`);
                 console.log(`   Card methods: ${cardMethodsCount}`);
                 console.log(`   Missing field: ${missingFieldCount}`);
-                
+
                 if (missingFieldCount > 0) {
                     console.warn(`⚠️ ${missingFieldCount} payment methods are missing gm_is_card field!`);
                     console.warn(`   Card number popup may not work correctly for these methods.`);
                 }
-                
+
                 console.groupEnd();
             } else {
                 console.warn("⚠️ No payment methods loaded");
@@ -276,37 +209,35 @@ patch(PosStore.prototype, {
 
             // ✅ VALIDATE DEFAULT CUSTOMER
             console.group("👤 VALIDATING DEFAULT CUSTOMER");
-            
+
             if (this.config.default_partner_id) {
-                const defaultCustomerId = Array.isArray(this.config.default_partner_id) 
-                    ? this.config.default_partner_id[0] 
+                const defaultCustomerId = Array.isArray(this.config.default_partner_id)
+                    ? this.config.default_partner_id[0]
                     : this.config.default_partner_id;
-                
-                const defaultCustomerName = Array.isArray(this.config.default_partner_id) 
-                    ? this.config.default_partner_id[1] 
+
+                const defaultCustomerName = Array.isArray(this.config.default_partner_id)
+                    ? this.config.default_partner_id[1]
                     : 'Unknown';
 
                 console.log(`🔍 Looking for default customer: ${defaultCustomerName} (ID: ${defaultCustomerId})`);
 
-                // Check in db
                 let foundInDb = false;
                 if (this.db && this.db.partner_by_id) {
                     foundInDb = !!this.db.partner_by_id[defaultCustomerId];
                 }
 
-                // Check in partners array
                 let foundInArray = false;
                 if (this.partners) {
                     foundInArray = this.partners.some(p => p.id === defaultCustomerId);
                 }
 
                 console.log("Validation results:", {
-                    defaultCustomerId: defaultCustomerId,
-                    defaultCustomerName: defaultCustomerName,
-                    foundInDb: foundInDb,
-                    foundInArray: foundInArray,
+                    defaultCustomerId,
+                    defaultCustomerName,
+                    foundInDb,
+                    foundInArray,
                     dbPartnerCount: this.db ? Object.keys(this.db.partner_by_id || {}).length : 0,
-                    partnersArrayCount: this.partners ? this.partners.length : 0
+                    partnersArrayCount: this.partners ? this.partners.length : 0,
                 });
 
                 if (foundInDb || foundInArray) {
@@ -318,7 +249,7 @@ patch(PosStore.prototype, {
                         issue1: "Is the default_partner_id set correctly in pos.config?",
                         issue2: "Is the partner archived or deleted?",
                         issue3: "Is the partner filtered out by domain restrictions?",
-                        samplePartners: this.partners ? this.partners.slice(0, 5).map(p => ({id: p.id, name: p.name})) : []
+                        samplePartners: this.partners ? this.partners.slice(0, 5).map(p => ({ id: p.id, name: p.name })) : [],
                     });
                 }
             } else {
@@ -332,18 +263,12 @@ patch(PosStore.prototype, {
                 config: !!configSettings,
                 company: !!this.company,
                 barcodeConfig: !!barcodeConfig,
-                schedules: this.loyalty_schedules.length,
-                members: this.loyalty_members.length,
-                programs: this.programs.length,
-                rules: this.loyalty_rules.length,
-                rewards: this.loyalty_rewards.length,
                 employees: this.hr_employee.length,
                 employeeConfigs: this.hr_employee_config.length,
                 partners: this.partners ? this.partners.length : 0,
                 multipleBarcodes: this.multiple_barcodes.length,
                 cashierLogs: this.cashier_logs.length,
                 paymentMethods: this.payment_methods ? this.payment_methods.length : 0,
-                // ✅ ROUNDING CONFIG SUMMARY
                 autoRounding: this.config.enable_auto_rounding || false,
                 roundingValue: this.config.rounding_value || 0,
                 roundingProduct: this.config.rounding_product_id ? this.config.rounding_product_id.name : 'Not set',
@@ -357,7 +282,7 @@ patch(PosStore.prototype, {
     },
 
     /**
-     * ✅ Helper method to get rounding configuration
+     * Helper method to get rounding configuration
      */
     getRoundingConfig() {
         return {
@@ -369,44 +294,43 @@ patch(PosStore.prototype, {
     },
 
     /**
-     * ✅ Helper method to validate rounding configuration
+     * Helper method to validate rounding configuration
      */
     isRoundingConfigured() {
         const config = this.getRoundingConfig();
-        
+
         if (!config.enabled) {
             return { valid: false, reason: 'Auto rounding is disabled' };
         }
-        
+
         if (!config.product_id) {
             return { valid: false, reason: 'Rounding product not configured' };
         }
-        
+
         const product = this.db.get_product_by_id(config.product_id);
         if (!product) {
             return { valid: false, reason: 'Rounding product not found in POS database' };
         }
-        
+
         if (!product.available_in_pos) {
             return { valid: false, reason: 'Rounding product not available in POS' };
         }
-        
+
         return { valid: true, config: config };
     },
 
     /**
-     * ✅ Helper method to get default customer
+     * Helper method to get default customer
      */
     getDefaultCustomer() {
         if (!this.config.default_partner_id) {
             return null;
         }
 
-        const defaultCustomerId = Array.isArray(this.config.default_partner_id) 
-            ? this.config.default_partner_id[0] 
+        const defaultCustomerId = Array.isArray(this.config.default_partner_id)
+            ? this.config.default_partner_id[0]
             : this.config.default_partner_id;
 
-        // Try multiple sources
         let customer = null;
 
         // 1. Try db.get_partner_by_id
@@ -438,12 +362,11 @@ patch(PosStore.prototype, {
     },
 
     /**
-     * ✅ Override add_new_order to ensure default customer is set
+     * Override add_new_order to ensure default customer is set
      */
     add_new_order() {
         const order = super.add_new_order(...arguments);
-        
-        // ✅ Set default customer jika belum ada dan bukan refund order
+
         if (order && !order.partner && !order.is_refund_order) {
             const defaultCustomer = this.getDefaultCustomer();
             if (defaultCustomer) {
@@ -453,32 +376,8 @@ patch(PosStore.prototype, {
                 console.warn("⚠️ Could not set default customer - partner not found");
             }
         }
-        
+
         return order;
-    },
-
-    /**
-     * Helper method to get loyalty program by ID
-     */
-    getLoyaltyProgram(programId) {
-        try {
-            return this.programs.find(p => p.id === programId);
-        } catch (e) {
-            console.error("❌ Error getting loyalty program:", e);
-            return null;
-        }
-    },
-
-    /**
-     * Helper method to get active loyalty programs
-     */
-    getActiveLoyaltyPrograms() {
-        try {
-            return this.programs.filter(p => p.active === true);
-        } catch (e) {
-            console.error("❌ Error getting active programs:", e);
-            return [];
-        }
     },
 
     /**
@@ -532,8 +431,8 @@ patch(PosStore.prototype, {
         try {
             const barcodeRecord = this.multiple_barcodes.find(b => b.barcode === barcode);
             if (barcodeRecord && barcodeRecord.product_id) {
-                const productId = Array.isArray(barcodeRecord.product_id) 
-                    ? barcodeRecord.product_id[0] 
+                const productId = Array.isArray(barcodeRecord.product_id)
+                    ? barcodeRecord.product_id[0]
                     : barcodeRecord.product_id;
                 return this.db.get_product_by_id(productId);
             }

@@ -131,11 +131,81 @@ class PrintBarcode(models.Model):
     #Document Inventory
     doc_type = fields.Selection([('receipt', 'GRPO'), ('good_receipts', 'Good Receipts'), ('ts_out', 'TSOUT'), ('ts_in', 'TSIN')], string="Tipe Dokumen")
 
+    # Tambahkan field ini setelah field doc_type
+    doc_number = fields.Char(string="Nomor Dokumen")
+
     # For storing the generated PDF
     barcode_pdf = fields.Binary(string="Generated Barcode PDF", attachment=True)
     barcode_filename = fields.Char(string="Barcode Filename")
 
     product_line_ids = fields.One2many('print.barcode.product.line', 'barcode_id', string='Products')
+
+    @api.onchange('doc_number')
+    def _onchange_doc_number(self):
+        """Search products by specific document number"""
+        self.product_line_ids = [(5, 0, 0)]
+        
+        if not self.doc_number:
+            return
+        
+        # Search by origin (source document number) or name
+        domain = [
+            '|',
+            ('name', 'ilike', self.doc_number),
+            ('origin', 'ilike', self.doc_number),
+            ('state', 'in', ['assigned', 'done']),
+        ]
+        
+        # Filter by doc_type jika dipilih
+        if self.doc_type:
+            doc_type_mapping = {
+                'receipt': 'GRPO',
+                'good_receipts': 'Goods Receipts',
+                'ts_out': 'TSOUT',
+                'ts_in': 'TSIN',
+            }
+            picking_type_name = doc_type_mapping.get(self.doc_type)
+            if picking_type_name:
+                domain.append(('picking_type_id.name', '=', picking_type_name))
+        
+        pickings = self.env['stock.picking'].search(domain)
+        
+        if not pickings:
+            return {'warning': {
+                'title': 'Tidak Ditemukan',
+                'message': f"Dokumen dengan nomor '{self.doc_number}' tidak ditemukan atau belum selesai."
+            }}
+        
+        products_data = {}
+        for picking in pickings:
+            for move in picking.move_ids_without_package:
+                product = move.product_id
+                if not product:
+                    continue
+                if product.id in products_data:
+                    products_data[product.id]['qty'] += move.quantity
+                else:
+                    products_data[product.id] = {
+                        'product_id': product.id,
+                        'qty': move.quantity,
+                        'receipt_date': fields.Date.to_date(picking.scheduled_date)
+                    }
+        
+        if not products_data:
+            return {'warning': {
+                'title': 'Tidak Ada Produk',
+                'message': "Tidak ada produk yang ditemukan pada dokumen tersebut."
+            }}
+        
+        product_lines = []
+        for product_data in products_data.values():
+            product_lines.append((0, 0, {
+                'product_id': product_data['product_id'],
+                'jumlah_copy': 1.0,
+                'tanggal_masuk': product_data['receipt_date']
+            }))
+        
+        self.product_line_ids = product_lines
 
     @api.model
     def _get_paper_sizes(self):
@@ -237,6 +307,7 @@ class PrintBarcode(models.Model):
         """Automatically populate product_line_ids when doc_type is selected"""
         # Clear existing product lines
         self.product_line_ids = [(5, 0, 0)]
+        self.doc_number = False  # Reset nomor dokumen saat tipe berubah
         
         if not self.doc_type:
             return

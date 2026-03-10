@@ -137,7 +137,13 @@ patch(SaleOrderManagementScreen.prototype, {
                     "| employee:", employee ? employee.name : "NOT FOUND");
 
         const lines = sale_order.order_line;
-        const product_to_add_in_pos = lines
+
+        // ✅ FIX: Filter out display_type lines (sections/notes) yang tidak punya product_id
+        // Tanpa ini, line.product_id = false → line.product_id[0] = undefined
+        // → _addProducts menerima [undefined, 11264] → error "Invalid ids list: ,11264"
+        const productLines = lines.filter(line => line.product_id && line.product_id[0]);
+
+        const product_to_add_in_pos = productLines
             .filter(line => !this.pos.db.get_product_by_id(line.product_id[0]))
             .map(line => line.product_id[0]);
 
@@ -153,6 +159,10 @@ patch(SaleOrderManagementScreen.prototype, {
 
         for (let i = 0; i < lines.length; i++) {
             const line = lines[i];
+
+            // ✅ FIX: Skip display_type lines (line_section / line_note) — tidak punya produk
+            if (!line.product_id || !line.product_id[0]) continue;
+
             if (!this.pos.db.get_product_by_id(line.product_id[0])) continue;
 
             let taxIds = orderFiscalPos ? undefined : line.tax_id;

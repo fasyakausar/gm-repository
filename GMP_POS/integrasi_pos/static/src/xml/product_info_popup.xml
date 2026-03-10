@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="point_of_sale.ProductInfoPopup"
+       t-inherit="point_of_sale.ProductInfoPopup"
+       t-inherit-mode="extension">
+
+        <!-- Add category badge below product name -->
+        <xpath expr="//div[hasclass('section-product-info-title')]//span[hasclass('global-info-title')]" position="after">
+            <t t-if="productDetail and productDetail.categ_id">
+                <span class="fs-6 text-muted">
+                    <i class="fa fa-folder me-1"/>
+                    <t t-esc="productDetail.categ_id[1]"/>
+                </span>
+            </t>
+        </xpath>
+
+        <!-- Add Product Details section after Financials -->
+        <xpath expr="//div[hasclass('section-financials')]" position="after">
+            <div class="section-product-detail mt-3 mb-4 pb-4 border-bottom text-start">
+                <h3 class="section-title">Product Details</h3>
+                <t t-if="extraState.loading">
+                    <div class="d-flex align-items-center gap-2 text-muted">
+                        <i class="fa fa-spinner fa-spin"/>
+                        <span>Loading details...</span>
+                    </div>
+                </t>
+                <t t-if="productDetail">
+                    <table class="table table-borderless mb-0">
+                        <t t-if="productDetail.display_name">
+                            <tr>
+                                <td>Product Name:</td>
+                                <td><t t-esc="productDetail.display_name"/></td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.uom_id">
+                            <tr>
+                                <td>Sales UoM:</td>
+                                <td><t t-esc="productDetail.uom_id[1]"/></td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.uom_po_id">
+                            <tr>
+                                <td>Purchase UoM:</td>
+                                <td><t t-esc="productDetail.uom_po_id[1]"/></td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.weight">
+                            <tr>
+                                <td>Weight:</td>
+                                <td><t t-esc="productDetail.weight"/> kg</td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.volume">
+                            <tr>
+                                <td>Volume:</td>
+                                <td><t t-esc="productDetail.volume"/> m³</td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.description_sale">
+                            <tr>
+                                <td>Sales Description:</td>
+                                <td><t t-esc="productDetail.description_sale"/></td>
+                            </tr>
+                        </t>
+                        <t t-if="productDetail.description">
+                            <tr>
+                                <td>Internal Description:</td>
+                                <td><t t-esc="productDetail.description"/></td>
+                            </tr>
+                        </t>
+                    </table>
+                    <t t-if="productDetail.product_tag_ids and productDetail.product_tag_ids.length > 0">
+                        <div class="d-flex flex-wrap gap-1 mt-2">
+                            <t t-foreach="productDetail.product_tag_ids" t-as="tag" t-key="tag">
+                                <span class="badge bg-secondary" t-esc="tag"/>
+                            </t>
+                        </div>
+                    </t>
+                </t>
+            </div>
+        </xpath>
+
+        <!-- Add total available stock badge in Inventory section header -->
+        <xpath expr="//div[hasclass('section-inventory')]/h3" position="inside">
+            <t t-if="productInfo.warehouses.length > 0">
+                <span t-attf-class="ms-2 badge {{ totalAvailableQty > 0 ? 'bg-success' : 'bg-danger' }}">
+                    <t t-esc="totalAvailableQty"/> Available
+                </span>
+            </t>
+        </xpath>
+
+    </t>
+
+</templates>

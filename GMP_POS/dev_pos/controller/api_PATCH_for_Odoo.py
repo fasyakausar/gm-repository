@@ -849,21 +849,20 @@ class GRPOPATCH(http.Controller):
 class InternalTransferPATCH(http.Controller):
     @http.route(['/api/internal_transfers/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_internal_transfer_order(self, return_id, **kwargs):
-        return self._update_stock_picking(return_id, 'Internal Transfers', 'Internal Transfer')
+        return update_stock_picking(return_id, 'Internal Transfers', 'Internal Transfer')
 
 class TsOutPATCH(http.Controller):
     @http.route(['/api/transfer_stock_out/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_transit_out_order(self, return_id, **kwargs):
-        return update_stock_picking(return_id, 'ts_out', 'Transfer Stock Out')
+        return update_stock_picking(return_id, 'TSOUT', 'Transfer Stock Out')
 
 class TsInPATCH(http.Controller):
     @http.route(['/api/transfer_stock_in/<int:return_id>'], type='json', auth='none', methods=['PATCH'], csrf=False)
     def update_transit_in_order(self, return_id, **kwargs):
-        return update_stock_picking(return_id, 'ts_in', 'Transfer Stock In')
+        return update_stock_picking(return_id, 'TSIN', 'Transfer Stock In')
 
-def update_stock_picking(return_id, gm_type_transfer, operation_name):
+def update_stock_picking(return_id, operation_type_name, operation_name):
     try:
-        # Get configuration
         config = request.env['setting.config'].sudo().search([('vit_config_server', '=', 'mc')], limit=1)
         if not config:
             return {
@@ -872,11 +871,7 @@ def update_stock_picking(return_id, gm_type_transfer, operation_name):
                 'message': "Configuration not found.",
             }
 
-        username = config.vit_config_username
-        password = config.vit_config_password_api
-
-        # Manual authentication
-        uid = request.session.authenticate(request.session.db, username, password)
+        uid = request.session.authenticate(request.session.db, config.vit_config_username, config.vit_config_password_api)
         if not uid:
             return {
                 'status': "Failed",
@@ -884,7 +879,6 @@ def update_stock_picking(return_id, gm_type_transfer, operation_name):
                 'message': "Authentication failed.",
             }
 
-        # Use superuser environment
         env = request.env(user=request.env.ref('base.user_admin').id)
 
         data = request.get_json_data()
@@ -898,10 +892,9 @@ def update_stock_picking(return_id, gm_type_transfer, operation_name):
                 'id': return_id
             }
 
-        # Updated search to use gm_type_transfer and Internal Transfers
         stock_picking = env['stock.picking'].sudo().search([
             ('id', '=', return_id),
-            ('gm_type_transfer', '=', gm_type_transfer)
+            ('picking_type_id.name', '=', operation_type_name)
         ], limit=1)
 
         if not stock_picking.exists():

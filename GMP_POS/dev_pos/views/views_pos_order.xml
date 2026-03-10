@@ -12,6 +12,7 @@
             <field name="vit_pos_store"/>
             <field name="vit_id"/>
             <field name="is_integrated"/>
+            <field name="is_printed"/>
             <field name="gift_card_code"/>
             <field name="gm_invoice_e_commerce"/>
             <field name="gm_po_customer"/>

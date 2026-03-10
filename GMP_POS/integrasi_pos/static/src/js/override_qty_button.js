@@ -13,7 +13,7 @@ import { InputNumberPopUpQty } from "./input_number_popup_qty";
 // Helper
 // ============================================================
 function isSelectedLineDP(pos) {
-    return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_dp === true;
+    return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_fixed_price === true;
 }
 
 function removeSelectedDPLine(pos) {
@@ -29,13 +29,13 @@ function removeSelectedDPLine(pos) {
 // ============================================================
 patch(Orderline.prototype, {
     set_quantity(quantity, keep_price) {
-        if (this.product?.gm_is_dp) {
+        if (this.product?.gm_is_fixed_price) {
             const alreadyHasQty = this.quantity !== undefined && this.quantity !== 0;
             if (alreadyHasQty) {
-                console.warn("[gm_is_dp] set_quantity BLOCKED:", this.product?.display_name, "current:", this.quantity, "new:", quantity);
+                console.warn("[gm_is_fixed_price] set_quantity BLOCKED:", this.product?.display_name, "current:", this.quantity, "new:", quantity);
                 return false;
             }
-            console.log("[gm_is_dp] set_quantity ALLOWED (initial):", this.product?.display_name, "qty:", quantity);
+            console.log("[gm_is_fixed_price] set_quantity ALLOWED (initial):", this.product?.display_name, "qty:", quantity);
         }
         return super.set_quantity(quantity, keep_price);
     },
@@ -66,9 +66,6 @@ patch(ProductScreen.prototype, {
     setup() {
         super.setup();
 
-        // ✅ Override triggerAtInput setelah super.setup() selesai
-        // Ini menimpa binding asli Odoo sehingga updateSelectedOrderline
-        // versi patch kita yang akan dipanggil
         this.numberBuffer.use({
             triggerAtInput: (...args) => {
                 if (!this.pos.tempScreenIsShown) {
@@ -152,10 +149,16 @@ patch(ProductScreen.prototype, {
         // ── Guard: input angka untuk quantity / discount / price ──
         if (["quantity", "discount", "price"].includes(mode) && key !== "Backspace") {
             const product = this.getProductFromSelectedLine();
-            const isValidated = await this.validateManagerAccess(mode, product);
-            if (!isValidated) {
-                this.numberBuffer.reset();
-                return;
+
+            // Skip PIN validation jika product adalah Down Payment
+            const isDPProduct = mode === "price" && product?.gm_is_fixed_price === true;
+
+            if (!isDPProduct) {
+                const isValidated = await this.validateManagerAccess(mode, product);
+                if (!isValidated) {
+                    this.numberBuffer.reset();
+                    return;
+                }
             }
 
             if (!selectedLine) {

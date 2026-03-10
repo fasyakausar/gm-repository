@@ -98,7 +98,7 @@ patch(Order.prototype, {
 
         const currentTotal = this.get_total_with_tax();
         const roundingValue = roundingConfig.value;
-        const roundedTotal = Math.round(currentTotal / roundingValue) * roundingValue;
+        const roundedTotal = Math.ceil(currentTotal / roundingValue) * roundingValue;
         const roundingAmount = roundedTotal - currentTotal;
 
         console.log('Calculation:', { currentTotal, roundingValue, roundedTotal, roundingAmount });

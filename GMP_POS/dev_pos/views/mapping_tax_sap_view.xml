@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Tree View -->
+    <record id="view_mapping_tax_tree" model="ir.ui.view">
+        <field name="name">mapping.tax.tree</field>
+        <field name="model">mapping.tax</field>
+        <field name="arch" type="xml">
+            <tree string="Mapping Tax" editable="bottom">
+                <field name="company_id" optional="show"/>
+                <field name="gm_warehouse_id"/>
+                <field name="gm_tax_code"/>
+                <field name="gm_tax_code_0"/>
+            </tree>
+        </field>
+    </record>
+
+    <!-- Form View -->
+    <record id="view_mapping_tax_form" model="ir.ui.view">
+        <field name="name">mapping.tax.form</field>
+        <field name="model">mapping.tax</field>
+        <field name="arch" type="xml">
+            <form string="Mapping Tax">
+                <sheet>
+                    <group>
+                        <field name="company_id" options="{'no_create': True}"/>
+                        <field name="gm_warehouse_id"
+                               domain="[('company_id', '=', company_id)]"
+                               options="{'no_create': True}"/>
+                        <field name="gm_tax_code"
+                               domain="[('company_id', '=', company_id), ('type_tax_use', '=', 'sale')]"
+                               options="{'no_create': True}"/>
+                        <field name="gm_tax_code_0"
+                               domain="[('company_id', '=', company_id), ('type_tax_use', '=', 'sale')]"
+                               options="{'no_create': True}"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Action -->
+    <record id="action_mapping_tax" model="ir.actions.act_window">
+        <field name="name">Mapping Tax</field>
+        <field name="res_model">mapping.tax</field>
+        <field name="view_mode">tree,form</field>
+    </record>
+
+    <!-- Menu -->
+    <menuitem id="menu_mapping_tax"
+              name="Mapping Tax"
+              parent="account.menu_finance"
+              action="action_mapping_tax"
+              sequence="80"/>
+
+    <!-- Security Rule -->
+    <record model="ir.rule" id="mapping_tax_company_rule">
+        <field name="name">Mapping Tax: multi-company</field>
+        <field name="model_id" ref="model_mapping_tax"/>
+        <field name="global" eval="True"/>
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+
+</odoo>

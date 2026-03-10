@@ -11,6 +11,7 @@
             <field name="vit_sub_div" readonly="1"/>
             <field name="vit_item_kel" readonly="1"/>
             <field name="vit_item_type" readonly="1"/>
+            <field name="gm_is_fixed_price"/>
             <field name="gm_is_dp"/>
             <field name="gm_is_pelunasan"/>
             <field name="gm_is_rounding"/>

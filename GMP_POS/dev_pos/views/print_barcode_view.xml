@@ -30,6 +30,9 @@
                                 <field name="start_date"/>
                                 <field name="end_date"/>
                                 <field name="doc_type" widget="radio"/>
+                                <field name="doc_number" 
+                                    placeholder="Contoh: GRPO/2024/001"
+                                    help="Isi untuk filter berdasarkan nomor dokumen spesifik. Kosongkan untuk menggunakan filter tanggal."/>
                             </group>
                             <group>
                                 <field name="pilihan" widget="radio"/>
@@ -394,22 +397,21 @@
             parent="point_of_sale.menu_point_config_product"
             sequence="4"/>
 
-        <menuitem id="menu_print_barcode"
-            name="Print Barcode"
-            action="action_print_barcode"
-            parent="menu_print_barcode_root"
-            sequence="1"/>
+        <menuitem id="menu_print_barcode_root"
+    name="Barcode Printing"
+    parent="point_of_sale.menu_point_config_product"
+    sequence="4"/>
 
-        <menuitem id="menu_printer_list"
-            name="Printer Configuration"
-            action="action_printer_list"
-            parent="menu_print_barcode_root"
-            sequence="2"/>
+    <menuitem id="menu_print_barcode_pos"  
+        name="Print Barcode"
+        action="action_print_barcode"
+        parent="menu_print_barcode_root"
+        sequence="1"/>
 
-        <menuitem id="menu_paper_size"
-            name="Paper Sizes"
-            action="action_paper_size"
-            parent="menu_print_barcode_root"
-            sequence="3"/>
+    <menuitem id="menu_print_barcode_stock"  
+        name="Print Barcode"
+        action="action_print_barcode"
+        parent="stock.menu_stock_root"
+        sequence="80"/>
     </data>
 </odoo>

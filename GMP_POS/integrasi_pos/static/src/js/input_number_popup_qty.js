@@ -3,7 +3,7 @@
 import { AbstractAwaitablePopup } from "@point_of_sale/app/popup/abstract_awaitable_popup";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
-import { useState, useRef, onMounted } from "@odoo/owl";
+import { useState, useRef, onMounted, onWillUnmount } from "@odoo/owl";
 import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 
 export class InputNumberPopUpQty extends AbstractAwaitablePopup {
@@ -14,67 +14,106 @@ export class InputNumberPopUpQty extends AbstractAwaitablePopup {
         this.popup = useService("popup");
         this.inputRef = useRef("numberInput");
 
-        onMounted(() => {
-            this.inputRef.el?.focus();
-        });
-
         this.state = useState({
-            inputValue: "",      // Raw value without formatting
-            displayValue: "",    // Formatted value with separators
+            inputValue: "",
+            displayValue: "",
         });
 
-        this.handleKeyClick = (key) => {
-            if (key === "⌫") {
-                this.removeLastChar();
-            } else {
+        // Keyboard handler
+        this._onKeyDown = (ev) => {
+            if (ev.defaultPrevented) return;
+            const key = ev.key;
+            if (key >= "0" && key <= "9") {
+                ev.preventDefault();
                 this.addNumber(key);
+            } else if (key === "." || key === ",") {
+                ev.preventDefault();
+                this.addNumber(".");
+            } else if (key === "Backspace") {
+                ev.preventDefault();
+                this.removeLastChar();
+            } else if (key === "Enter") {
+                ev.preventDefault();
+                this.confirmInput();
+            } else if (key === "Escape") {
+                ev.preventDefault();
+                this.cancel();
             }
         };
+
+        onMounted(() => {
+            this.inputRef.el?.focus();
+            window.addEventListener("keydown", this._onKeyDown);
+        });
+
+        onWillUnmount(() => {
+            window.removeEventListener("keydown", this._onKeyDown);
+        });
     }
 
-    // ✅ Format number with thousand separator (Indonesian format)
+    // ─── Numpad: handler utama via data-num ───────────────────────
+
+    /**
+     * Handler untuk click (mouse/desktop)
+     */
+    onNumpadClick(ev) {
+        const num = ev.currentTarget.dataset.num;
+        if (!num) return;
+        if (num === "backspace") {
+            this.removeLastChar();
+        } else {
+            this.addNumber(num);
+        }
+    }
+
+    /**
+     * Handler untuk touchstart (touchscreen)
+     * preventDefault() mencegah ghost click ~300ms setelah touch
+     */
+    onNumpadTouch(ev) {
+        ev.preventDefault();
+        const num = ev.currentTarget.dataset.num;
+        if (!num) return;
+        if (num === "backspace") {
+            this.removeLastChar();
+        } else {
+            this.addNumber(num);
+        }
+    }
+
+    // ─── Action buttons touch handlers ───────────────────────────
+
+    onConfirmTouch(ev) {
+        ev.preventDefault();
+        this.confirmInput();
+    }
+
+    onCancelTouch(ev) {
+        ev.preventDefault();
+        this.cancel();
+    }
+
+    // ─── Format helpers ───────────────────────────────────────────
+
     formatNumber(value) {
         if (!value) return "";
-        
-        // Split by comma (decimal separator)
         const parts = value.split(',');
         const integerPart = parts[0];
         const decimalPart = parts[1];
-
-        // Add thousand separator (dot)
         const formattedInteger = integerPart.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
-
-        // Combine with decimal part if exists
-        return decimalPart !== undefined 
-            ? `${formattedInteger},${decimalPart}` 
+        return decimalPart !== undefined
+            ? `${formattedInteger},${decimalPart}`
             : formattedInteger;
     }
 
-    // ✅ Update display value with formatting
     updateDisplayValue() {
         this.state.displayValue = this.formatNumber(this.state.inputValue);
     }
 
-    confirmInput() {
-        const input = this.state.inputValue.trim();
-        if (!input || isNaN(parseFloat(input.replace(',', '.')))) {
-            this.popup.add(ErrorPopup, {
-                title: _t("Input tidak valid"),
-                body: _t("Harap masukkan angka yang valid."),
-            });
-            return;
-        }
-
-        // Convert Indonesian format (comma as decimal) to standard format
-        const standardFormat = input.replace(',', '.');
-        this.props.resolve({ input: parseFloat(standardFormat) });
-        this.cancel();
-    }
+    // ─── Core logic ───────────────────────────────────────────────
 
     addNumber(num) {
-        // Handle decimal point (use comma for Indonesian format)
         if (num === ".") {
-            // Prevent multiple decimal separators
             if (!this.state.inputValue.includes(",")) {
                 this.state.inputValue += ",";
             }
@@ -92,5 +131,47 @@ export class InputNumberPopUpQty extends AbstractAwaitablePopup {
     clearInput() {
         this.state.inputValue = "";
         this.state.displayValue = "";
+    }
+
+    confirmInput() {
+        const input = this.state.inputValue.trim();
+        if (!input || isNaN(parseFloat(input.replace(',', '.')))) {
+            this.popup.add(ErrorPopup, {
+                title: _t("Input tidak valid"),
+                body: _t("Harap masukkan angka yang valid."),
+            });
+            return;
+        }
+        const standardFormat = input.replace(',', '.');
+        this.props.resolve({ input: parseFloat(standardFormat) });
+        this.cancel();
+    }
+
+    // Handle ketik langsung di input field
+    onInputKeyboard(ev) {
+        const raw = ev.target.value.replace(/\./g, '').replace(',', '.');
+        const cleaned = raw.replace('.', ',');
+        this.state.inputValue = cleaned;
+        this.updateDisplayValue();
+        ev.target.value = this.state.displayValue;
+    }
+
+    onKeyDown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.confirmInput();
+        } else if (ev.key === "Escape") {
+            ev.preventDefault();
+            this.cancel();
+        }
+    }
+
+    // Alias untuk backward compat (dipanggil dari tempat lain jika ada)
+    handleKeyClick(key) {
+        if (key === "⌫") {
+            this.removeLastChar();
+        } else {
+            this.addNumber(key);
+        }
     }
 }
