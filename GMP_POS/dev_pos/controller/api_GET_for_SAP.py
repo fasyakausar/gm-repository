@@ -1363,7 +1363,7 @@ class MasterPoSCategoryItem(http.Controller):
         
 class MasterCustomerAPI(http.Controller):
     @http.route(['/api/master_customer/'], type='http', auth='public', methods=['GET'], csrf=False)
-    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, customer_code=None, is_integrated=None, company_id=None, **params):
+    def master_customer_get(self, createdDateFrom=None, createdDateTo=None, pageSize=200, page=1, customer_code=None, is_integrated=None, company_id=None, active=None, **params):
         try:
             check_authorization()
 
@@ -1377,7 +1377,7 @@ class MasterCustomerAPI(http.Controller):
             # Build domain filters
             if customer_code:
                 domain += [('customer_code', '=', str(customer_code))]
-            
+
             if company_id is not None:
                 try:
                     company_id_int = int(company_id)
@@ -1390,66 +1390,110 @@ class MasterCustomerAPI(http.Controller):
                 created_date_to = fields.Date.from_string(createdDateTo) if createdDateTo else fields.Date.today()
 
                 domain += [('create_date', '>=', created_date_from.strftime(date_format)),
-                        ('create_date', '<=', created_date_to.strftime(date_format))]
-            
-            # Fix: Properly handle is_integrated filter
+                           ('create_date', '<=', created_date_to.strftime(date_format))]
+
             # Fix is_integrated filter
             if is_integrated is not None:
                 is_integrated_bool = str(is_integrated).lower() == 'true'
                 if is_integrated_bool:
                     domain += [('is_integrated', '=', True)]
                 else:
-                    domain += [('is_integrated', '!=', True)]  # ✅ Capture False AND NULL
+                    domain += [('is_integrated', '!=', True)]  # Capture False AND NULL
 
-            # ✅ Fetch data with pagination - ALWAYS use domain
+            # ✅ Filter active/archive
+            # Default hanya tampilkan yang active=True
+            # Jika active=false → tampilkan yang diarchive
+            # Jika active=all  → tampilkan semua
+            if active is not None:
+                active_str = str(active).lower()
+                if active_str == 'all':
+                    domain += ['|', ('active', '=', True), ('active', '=', False)]
+                elif active_str in ['false', '0', 'no']:
+                    domain += [('active', '=', False)]
+                else:
+                    domain += [('active', '=', True)]
+            else:
+                domain += [('active', '=', True)]  # Default: hanya tampilkan yang aktif
+
+            # Fetch data with pagination
             customers_data, total_records = paginate_records('res.partner', domain, pageSize, page)
 
             data_master_customer = []
             jakarta_tz = pytz.timezone('Asia/Jakarta')
-            
+
             for customer in customers_data:
                 create_date_utc = customer.create_date
                 create_date_jakarta = pytz.utc.localize(create_date_utc).astimezone(jakarta_tz)
-                
+
                 customer_data = {
                     'id': customer.id,
                     'create_date': str(create_date_jakarta),
+                    'customer_code': customer.customer_code if customer.customer_code else "",
                     'name': customer.name,
+
+                    # ✅ Alamat lengkap
                     'street': customer.street if customer.street else "",
+                    'street2': customer.street2 if customer.street2 else "",           # ✅ TAMBAHAN
+                    'city': customer.city if customer.city else "",                     # ✅ TAMBAHAN
+                    'state_id': customer.state_id.id if customer.state_id else None,   # ✅ TAMBAHAN
+                    'state_name': customer.state_id.name if customer.state_id else "", # ✅ TAMBAHAN
+                    'country_id': customer.country_id.id if customer.country_id else None,   # ✅ TAMBAHAN
+                    'country_name': customer.country_id.name if customer.country_id else "", # ✅ TAMBAHAN
+                    'zip': customer.zip if customer.zip else "",                        # ✅ TAMBAHAN
+
+                    # Kontak
                     'phone': customer.phone if customer.phone else "",
                     'mobile': customer.mobile if customer.mobile else "",
                     'email': customer.email if customer.email else "",
                     'website': customer.website if customer.website else "",
                     'title': customer.title.name if customer.title else "",
+
+                    # ✅ BP Type & Tax
+                    'gm_bp_type': customer.gm_bp_type if customer.gm_bp_type else "",          # ✅ TAMBAHAN
+                    'gm_bp_tax_id': customer.gm_bp_tax.id if customer.gm_bp_tax else None,     # ✅ TAMBAHAN
+                    'gm_bp_tax': customer.gm_bp_tax.name if customer.gm_bp_tax else "",        # ✅ TAMBAHAN
+
+                    # ✅ Customer Group
+                    'vit_customer_group_id': customer.vit_customer_group.id if customer.vit_customer_group else None,     # ✅ TAMBAHAN
+                    'vit_customer_group': customer.vit_customer_group.name if customer.vit_customer_group else "",        # ✅ TAMBAHAN
+
+                    # Status
                     'is_integrated': customer.is_integrated,
+                    'active': customer.active,                                          # ✅ TAMBAHAN
                     'customer_rank': customer.customer_rank,
                     'supplier_rank': customer.supplier_rank,
+
+                    # Pajak
                     'tax_id': customer.vat,
                     'l10n_id_pkp': customer.l10n_id_pkp,
+
+                    # Pricelist
                     'property_product_pricelist_id': customer.property_product_pricelist.id if customer.property_product_pricelist else None,
                     'property_product_pricelist': customer.property_product_pricelist.name if customer.property_product_pricelist else "",
+
+                    # Akun
                     'property_account_receivable_id': customer.property_account_receivable_id.id if customer.property_account_receivable_id else None,
                     'property_account_receivable': customer.property_account_receivable_id.name if customer.property_account_receivable_id else "",
                     'property_account_payable_id': customer.property_account_payable_id.id if customer.property_account_payable_id else None,
                     'property_account_payable': customer.property_account_payable_id.name if customer.property_account_payable_id else "",
+
+                    # Stock location
                     'property_stock_customer_id': customer.property_stock_customer.id if customer.property_stock_customer else None,
                     'property_stock_customer': customer.property_stock_customer.name if customer.property_stock_customer else "",
                     'property_stock_supplier_id': customer.property_stock_supplier.id if customer.property_stock_supplier else None,
                     'property_stock_supplier': customer.property_stock_supplier.name if customer.property_stock_supplier else "",
+
+                    # Company
                     'company_id': customer.company_id.id if customer.company_id else None,
                     'company_name': customer.company_id.name if customer.company_id else "",
                 }
-                
-                # ✅ Hanya tambahkan customer_code jika ada isinya
-                if customer.customer_code:
-                    customer_data['customer_code'] = customer.customer_code
-                
+
                 data_master_customer.append(customer_data)
 
             total_pages = (total_records + pageSize - 1) // pageSize
 
             return serialize_response(data_master_customer, total_records, total_pages)
-        
+
         except ValidationError as ve:
             error_response = {
                 'error': 'One or more required parameters are missing.',

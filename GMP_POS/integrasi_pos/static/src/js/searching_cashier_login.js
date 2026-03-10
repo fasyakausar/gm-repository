@@ -15,17 +15,30 @@ patch(SelectionPopup.prototype, {
     },
 
     get filteredList() {
-        // If not cashier selection or no search query, return original list
-        if (!this.searchState || !this.searchState.searchQuery.trim()) {
-            return this.props.list;
+        let list = this.props.list;
+
+        // ✅ Filter berdasarkan basic_employee_ids & advanced_employee_ids dari pos.config
+        const basicIds = this.pos.config?.basic_employee_ids || [];
+        const advancedIds = this.pos.config?.advanced_employee_ids || [];
+        const allowedIds = [...new Set([...basicIds, ...advancedIds])];
+
+        // Jika allowedIds kosong = semua employee boleh login (sesuai tooltip Odoo)
+        if (allowedIds.length > 0) {
+            list = list.filter(item => {
+                const employeeId = item.item?.id;
+                return allowedIds.includes(employeeId);
+            });
         }
 
-        const query = this.searchState.searchQuery.toLowerCase().trim();
-        
-        // Filter list based on search query (case-insensitive)
-        return this.props.list.filter(item => {
-            return item.label && item.label.toLowerCase().includes(query);
-        });
+        // Filter search query
+        if (this.searchState?.searchQuery?.trim()) {
+            const query = this.searchState.searchQuery.toLowerCase().trim();
+            list = list.filter(item =>
+                item.label && item.label.toLowerCase().includes(query)
+            );
+        }
+
+        return list;
     },
 
     onSearchInput(event) {

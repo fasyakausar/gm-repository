@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 <odoo>
   <data>
   
@@ -28,6 +29,11 @@
         <xpath expr="//field[@name='partner_id']" position="attributes">
           <attribute name="domain">[('gm_bp_type', '=', 'customer')]</attribute>
         </xpath>
+
+        <!-- ✅ Sembunyikan tombol Register Payment di form invoice -->
+        <button id="account_invoice_payment_btn" position="attributes">
+          <attribute name="invisible">1</attribute>
+        </button>
       </field>
     </record>
 
@@ -41,6 +47,11 @@
           <field name="ref"/>
           <field name="is_integrated"/>
         </xpath>
+
+        <!-- ✅ Sembunyikan tombol Register Payment di list invoice -->
+        <button name="action_register_payment" position="attributes">
+          <attribute name="invisible">1</attribute>
+        </button>
       </field>
     </record>
 

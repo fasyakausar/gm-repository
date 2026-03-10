@@ -14,6 +14,9 @@ class ProductTemplate(models.Model):
     vit_item_kel = fields.Char(string="Kelompok")
     vit_item_type = fields.Char(string="Type")
     vit_is_discount = fields.Boolean(string="Discount")
+    gm_is_fixed_price = fields.Boolean(
+        string="Fixed Price?",
+    )
     gm_is_dp = fields.Boolean(
         string="Is DP?",
         help="Check this if this is a Down Payment product"

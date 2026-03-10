@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates id="template" xml:space="preserve">
+
+    <t t-name="point_of_sale.ProductInfoPopup" 
+       t-inherit="point_of_sale.ProductInfoPopup" 
+       t-inherit-mode="extension">
+        <xpath expr="//div[contains(@class,'section-financials-body')]" position="replace">
+            <div class="section-financials-body d-flex flex-column flex-sm-row">
+                <table class="table table-borderless mb-0">
+                    <tr>
+                        <td>Price excl. Tax:</td>
+                        <td><t t-esc="env.utils.formatCurrency(productInfo.all_prices.price_without_tax)"/></td>
+                    </tr>
+                    <tr t-if="_hasMarginsCostsAccessRights()">
+                        <td>Cost:</td>
+                        <td><t t-esc="costCurrency"/></td>
+                    </tr>
+                    <tr t-if="_hasMarginsCostsAccessRights()">
+                        <td>Margin:</td>
+                        <td><t t-esc="marginCurrency"/> (<t t-esc="marginPercent"/>%) </td>
+                    </tr>
+                </table>
+            </div>
+        </xpath>
+    </t>
+
+</templates>

@@ -58,13 +58,5 @@
       <field name="res_model">manual.sync.mc.to.ss</field>
       <field name="view_mode">form</field>
     </record>
-
-    <!-- Child Menu -->
-    <menuitem
-        id="synchronize_mc_to_ss_menu"
-        name="Master Console-Store"
-        action="action_synchronize_mc_to_ss"
-        parent="setting_config_menu_root"
-        sequence="2"/>
   </data>
 </odoo>

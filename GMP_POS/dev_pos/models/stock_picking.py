@@ -47,9 +47,7 @@ class StockPicking(models.Model):
         Auto-fill destination location with transit location when operation type is TSOUT
         Override default customer location from outgoing operation type
         """
-        # Cek apakah picking type ini adalah TSOUT (outgoing)
         if self.picking_type_id and self.picking_type_id.code == 'outgoing' and 'TSOUT' in self.picking_type_id.name:
-            # Cari lokasi dengan usage 'transit' - OVERRIDE default customer location
             transit_location = self.env['stock.location'].search([
                 ('usage', '=', 'transit'),
                 ('company_id', '=', self.company_id.id)
@@ -64,25 +62,20 @@ class StockPicking(models.Model):
         """
         Override create to auto-set destination location for TSOUT
         """
-        # Cek apakah ini TSOUT
         if vals.get('picking_type_id'):
             picking_type = self.env['stock.picking.type'].browse(vals['picking_type_id'])
             if picking_type and picking_type.code == 'outgoing' and 'TSOUT' in picking_type.name:
-                # Cari lokasi dengan usage transit
                 transit_location = self.env['stock.location'].search([
                     ('usage', '=', 'transit'),
                     ('company_id', '=', vals.get('company_id', self.env.company.id))
                 ], limit=1)
                 
                 if transit_location:
-                    # FORCE override destination location ke transit
                     vals['location_dest_id'] = transit_location.id
                     _logger.info(f"TSOUT Create: Set destination to transit location: {transit_location.name}")
         
-        # 🔥 CREATE PICKING DULU
         picking = super(StockPicking, self).create(vals)
         
-        # 🔥 FORCE UPDATE LAGI setelah create untuk TSOUT
         if picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name:
             transit_location = self.env['stock.location'].search([
                 ('usage', '=', 'transit'),
@@ -94,12 +87,8 @@ class StockPicking(models.Model):
                 picking.with_context(skip_location_check=True).write({
                     'location_dest_id': transit_location.id
                 })
-                
-                # 🔥 UPDATE SEMUA MOVE LINES juga
                 for move in picking.move_ids_without_package:
-                    move.write({
-                        'location_dest_id': transit_location.id
-                    })
+                    move.write({'location_dest_id': transit_location.id})
                 _logger.info(f"TSOUT Create: FORCED destination to transit location: {transit_location.name}")
         
         return picking
@@ -110,7 +99,6 @@ class StockPicking(models.Model):
         """
         res = super(StockPicking, self).write(vals)
         
-        # 🔥 Protect TSOUT destination location
         for picking in self:
             if picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name:
                 transit_location = self.env['stock.location'].search([
@@ -124,145 +112,236 @@ class StockPicking(models.Model):
                         super(StockPicking, picking).write({
                             'location_dest_id': transit_location.id
                         })
-                        
-                        # Update move lines juga
                         for move in picking.move_ids_without_package:
-                            move.write({
-                                'location_dest_id': transit_location.id
-                            })
+                            move.write({'location_dest_id': transit_location.id})
         
         return res
 
+    def _get_transit_location_from_target(self):
+        """
+        Helper: Ambil location_transit dari warehouse milik target_location.
+        - Ambil warehouse_id dari target_location
+        - Ambil field location_transit dari warehouse tersebut
+        - Fallback ke pencarian usage='transit' jika location_transit tidak diisi
+        """
+        self.ensure_one()
+
+        if not self.target_location:
+            raise UserError("Target Location belum diisi.")
+
+        target_warehouse = self.target_location.warehouse_id
+
+        if not target_warehouse:
+            raise UserError(
+                f"Target Location '{self.target_location.name}' tidak memiliki warehouse. "
+                f"Pastikan location sudah terhubung ke warehouse."
+            )
+
+        _logger.info(f"Target Warehouse: {target_warehouse.name} (ID: {target_warehouse.id})")
+
+        # ✅ Gunakan field custom location_transit dari warehouse
+        transit_location = target_warehouse.location_transit
+
+        if transit_location:
+            _logger.info(f"Transit Location (dari field location_transit): {transit_location.name} (ID: {transit_location.id})")
+            return transit_location
+
+        # Fallback: cari stock.location dengan usage='transit' di bawah warehouse tersebut
+        _logger.warning(
+            f"Warehouse '{target_warehouse.name}' tidak memiliki location_transit. "
+            f"Mencari fallback transit location..."
+        )
+        transit_location = self.env['stock.location'].search([
+            ('usage', '=', 'transit'),
+            ('company_id', '=', self.company_id.id),
+        ], limit=1)
+
+        if not transit_location:
+            raise UserError(
+                f"Transit Location tidak ditemukan untuk warehouse '{target_warehouse.name}'.\n\n"
+                f"Silakan isi field 'Transit Location' di konfigurasi warehouse tersebut."
+            )
+
+        _logger.warning(f"Using fallback transit location: {transit_location.name}")
+        return transit_location
+
     def button_validate(self):
-        """
-        Override button_validate to create TSIN automatically when validating TSOUT
-        """
+        # =====================================================
+        # VALIDASI ALLOWED WAREHOUSE
+        # =====================================================
+        current_user = self.env.user
+        
+        if current_user.allowed_warehouse_ids:
+            allowed_ids = current_user.allowed_warehouse_ids.ids
+            for picking in self:
+                picking_warehouse = picking.picking_type_id.warehouse_id
+                if not picking_warehouse:
+                    continue
+                if picking_warehouse.id not in allowed_ids:
+                    raise UserError(
+                        f"Anda tidak memiliki akses untuk memvalidasi transfer di warehouse "
+                        f"'{picking_warehouse.name}'.\n\n"
+                        f"Warehouse yang diizinkan: "
+                        f"{', '.join(current_user.allowed_warehouse_ids.mapped('name'))}"
+                    )
+
+        # =====================================================
+        # VALIDASI & SET TRANSIT LOCATION UNTUK TSOUT
+        # =====================================================
         for picking in self:
             _logger.info(f"=== Button Validate called for {picking.name} ===")
             _logger.info(f"Picking Type: {picking.picking_type_id.name} (code: {picking.picking_type_id.code})")
-            _logger.info(f"Picking Type Name contains TSOUT: {'TSOUT' in picking.picking_type_id.name}")
-            _logger.info(f"Target Location: {picking.target_location.name if picking.target_location else 'NOT SET'}")
-            _logger.info(f"Destination Location: {picking.location_dest_id.name if picking.location_dest_id else 'NOT SET'}")
-            _logger.info(f"Destination Usage: {picking.location_dest_id.usage if picking.location_dest_id else 'NOT SET'}")
-            
-            # Check if the operation type is 'Internal Transfers'
+
             if picking.picking_type_id.code == 'internal':
-                # Check if the source and destination locations are the same
                 if picking.location_id.id == picking.location_dest_id.id:
-                    raise UserError("Cannot validate this operation: Source and destination locations are the same.")
-            
-            # 🔥 Auto create TSIN when validating TSOUT
-            is_tsout = picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name
-            
-            _logger.info(f"Is TSOUT: {is_tsout}")
-            
+                    raise UserError(
+                        "Cannot validate this operation: "
+                        "Source and destination locations are the same."
+                    )
+
+            is_tsout = (
+                picking.picking_type_id.code == 'outgoing'
+                and 'TSOUT' in picking.picking_type_id.name
+            )
+
             if is_tsout:
                 _logger.info("=== TSOUT Detected ===")
-                
-                # Validasi target_location harus diisi
+
                 if not picking.target_location:
-                    raise UserError("Target Location must be set before validating TSOUT.")
-                
-                _logger.info(f"Target Location found: {picking.target_location.name}")
-                _logger.info(f"Will create TSIN from {picking.location_dest_id.name} to {picking.target_location.name}")
-        
-        # Validate semua picking first
-        _logger.info("Calling super().button_validate()...")
-        res = super(StockPicking, self).button_validate()
-        _logger.info("super().button_validate() completed")
-        
-        # Setelah validate, create TSIN untuk yang TSOUT
+                    raise UserError("Target Location harus diisi sebelum memvalidasi TSOUT.")
+
+                transit_location = picking._get_transit_location_from_target()
+
+                _logger.info(
+                    f"TSOUT {picking.name}: Set location_dest_id → "
+                    f"{transit_location.name} (ID: {transit_location.id})"
+                )
+
+                picking.with_context(skip_location_check=True).write({
+                    'location_dest_id': transit_location.id
+                })
+                for move in picking.move_ids_without_package:
+                    move.write({'location_dest_id': transit_location.id})
+
+                _logger.info("location_dest_id updated successfully")
+
+        # =====================================================
+        # PATCH: Skip message_subscribe jika dipanggil dari API
+        # =====================================================
+        if self.env.context.get('skip_subscribe'):
+            # Patch sementara: pastikan env.user.partner_id valid
+            # Jika tidak valid (False), skip subscribe dengan monkey-patch context
+            self = self.with_context(
+                skip_sanity_check=False,
+            )
+            # Override message_subscribe sementara agar tidak error
+            original_message_subscribe = self.__class__.message_subscribe
+
+            def _safe_message_subscribe(self_inner, partner_ids=None, subtype_ids=None):
+                # Filter out falsy partner_ids (False, None, 0)
+                if partner_ids:
+                    partner_ids = [pid for pid in partner_ids if pid]
+                if not partner_ids:
+                    return True
+                return original_message_subscribe(self_inner, partner_ids=partner_ids, subtype_ids=subtype_ids)
+
+            self.__class__.message_subscribe = _safe_message_subscribe
+            try:
+                res = super(StockPicking, self).button_validate()
+            finally:
+                # Restore original method
+                self.__class__.message_subscribe = original_message_subscribe
+        else:
+            res = super(StockPicking, self).button_validate()
+
+        # =====================================================
+        # AUTO CREATE TSIN SETELAH TSOUT VALIDATED
+        # =====================================================
         for picking in self:
-            is_tsout = picking.picking_type_id.code == 'outgoing' and 'TSOUT' in picking.picking_type_id.name
-            
+            is_tsout = (
+                picking.picking_type_id.code == 'outgoing'
+                and 'TSOUT' in picking.picking_type_id.name
+            )
             if is_tsout and picking.target_location and picking.state == 'done':
                 _logger.info(f"Creating TSIN for validated TSOUT {picking.name}...")
                 try:
                     picking._create_ts_in_transfer()
                 except Exception as e:
                     _logger.error(f"Failed to create TSIN: {str(e)}")
-                    # Tetap tampilkan error ke user
                     raise UserError(f"TSOUT validated but failed to create TSIN: {str(e)}")
-        
+
         return res
 
     def _create_ts_in_transfer(self):
         """
-        Create TSIN transfer automatically from TSOUT
-        location_id = Transit location (from TSOUT location_dest_id)
-        location_dest_id = target_location (from TSOUT)
+        Create TSIN transfer automatically from TSOUT.
+        - location_id      = location_transit dari warehouse target_location (= location_dest_id TSOUT)
+        - location_dest_id = target_location dari TSOUT
         """
         self.ensure_one()
         
         _logger.info(f"=== Creating TSIN for TSOUT {self.name} ===")
         
-        # Validasi: pastikan target_location sudah diisi
         if not self.target_location:
-            raise UserError("Target Location must be set before validating TSOUT.")
-        
-        _logger.info(f"Source (Transit): {self.location_dest_id.name} (ID: {self.location_dest_id.id})")
-        _logger.info(f"Destination (Target): {self.target_location.name} (ID: {self.target_location.id})")
-        
-        # Ambil warehouse dari target_location
-        target_warehouse = None
-        if self.target_location.warehouse_id:
-            target_warehouse = self.target_location.warehouse_id
-            _logger.info(f"Target Warehouse from location: {target_warehouse.name} (ID: {target_warehouse.id})")
-        else:
-            _logger.warning(f"Target location {self.target_location.name} has no warehouse!")
-        
-        # Find TSIN operation type (incoming) berdasarkan warehouse dari target_location
+            raise UserError("Target Location harus diisi sebelum membuat TSIN.")
+
+        # Transit location sudah di-set ke location_dest_id saat button_validate
+        transit_location = self.location_dest_id
+        _logger.info(f"Source TSIN (Transit)     : {transit_location.name} (ID: {transit_location.id})")
+        _logger.info(f"Destination TSIN (Target) : {self.target_location.name} (ID: {self.target_location.id})")
+
+        # Ambil warehouse dari target_location untuk mencari operation type TSIN
+        target_warehouse = self.target_location.warehouse_id
+        if not target_warehouse:
+            raise UserError(
+                f"Target Location '{self.target_location.name}' tidak memiliki warehouse."
+            )
+
+        _logger.info(f"Target Warehouse: {target_warehouse.name} (ID: {target_warehouse.id})")
+
+        # Cari operation type TSIN di warehouse target
         domain = [
             ('code', '=', 'incoming'),
             ('name', 'ilike', 'TSIN'),
+            ('warehouse_id', '=', target_warehouse.id),
         ]
-        
-        # Cari TSIN dengan warehouse dari target_location
-        if target_warehouse:
-            domain.append(('warehouse_id', '=', target_warehouse.id))
-            _logger.info(f"Searching TSIN with warehouse filter: {target_warehouse.name}")
-        
         ts_in_type = self.env['stock.picking.type'].search(domain, limit=1)
-        
-        # Jika tidak ketemu, coba cari tanpa warehouse filter
+
+        # Fallback tanpa filter warehouse
         if not ts_in_type:
             _logger.warning("TSIN not found with warehouse filter, searching without warehouse...")
             ts_in_type = self.env['stock.picking.type'].search([
                 ('code', '=', 'incoming'),
                 ('name', 'ilike', 'TSIN'),
             ], limit=1)
-        
+
         if not ts_in_type:
-            error_msg = "TSIN operation type not found. Please create an operation type with:\n"
-            error_msg += "- Code: Incoming\n"
-            error_msg += "- Name: (contains 'TSIN')\n"
-            if target_warehouse:
-                error_msg += f"- Warehouse: {target_warehouse.name}"
-            _logger.error(error_msg)
-            raise UserError(error_msg)
-        
-        _logger.info(f"TSIN Operation Type found: {ts_in_type.name} (ID: {ts_in_type.id})")
-        
-        # Prepare picking values
+            raise UserError(
+                f"Operation type TSIN tidak ditemukan.\n\n"
+                f"Pastikan sudah ada operation type dengan:\n"
+                f"- Code: Incoming\n"
+                f"- Nama mengandung 'TSIN'\n"
+                f"- Warehouse: {target_warehouse.name}"
+            )
+
+        _logger.info(f"TSIN Operation Type: {ts_in_type.name} (ID: {ts_in_type.id})")
+
+        # Buat picking TSIN
         picking_vals = {
             'picking_type_id': ts_in_type.id,
-            'location_id': self.location_dest_id.id,  # Transit location dari destination TSOUT
-            'location_dest_id': self.target_location.id,  # Target Location dari TSOUT
-            'origin': self.name,  # Reference ke TSOUT document
+            'location_id': transit_location.id,       # Transit dari warehouse target
+            'location_dest_id': self.target_location.id,  # Target location TSOUT
+            'origin': self.name,
             'scheduled_date': fields.Datetime.now(),
             'stock_type': self.stock_type.id if self.stock_type else False,
-            'target_location': False,  # TSIN tidak butuh target_location
-            'related_picking_id': self.id,  # Link kembali ke TSOUT
+            'target_location': False,
+            'related_picking_id': self.id,
         }
-        
-        _logger.info(f"Creating new picking with vals: {picking_vals}")
-        
-        # Create new picking
+
         new_picking = self.env['stock.picking'].create(picking_vals)
         _logger.info(f"TSIN created: {new_picking.name} (ID: {new_picking.id})")
-        
-        # Create move lines berdasarkan TSOUT moves
-        move_count = 0
+
+        # Buat move lines dari TSOUT
         for move in self.move_ids_without_package:
             move_vals = {
                 'name': move.product_id.name,
@@ -275,33 +354,30 @@ class StockPicking(models.Model):
                 'location_dest_id': new_picking.location_dest_id.id,
                 'vit_line_number_sap': move.vit_line_number_sap if hasattr(move, 'vit_line_number_sap') else False,
             }
-            new_move = self.env['stock.move'].create(move_vals)
-            move_count += 1
-            _logger.info(f"Created move line {move_count}: {move.product_id.name} - Qty: {move.product_uom_qty} (Move ID: {new_move.id})")
-        
-        # Confirm the picking to make it ready
-        _logger.info("Confirming TSIN...")
+            self.env['stock.move'].create(move_vals)
+            _logger.info(f"Move created: {move.product_id.name} - Qty: {move.product_uom_qty}")
+
+        # Confirm & assign
         new_picking.action_confirm()
         _logger.info(f"TSIN state after confirm: {new_picking.state}")
-        
-        _logger.info("Assigning TSIN...")
         new_picking.action_assign()
         _logger.info(f"TSIN state after assign: {new_picking.state}")
-        
-        # Store reference to TSIN in TSOUT
+
+        # Link balik ke TSOUT
         self.related_picking_id = new_picking.id
         _logger.info(f"=== TSIN {new_picking.name} created successfully ===")
-        
-        # Commit untuk memastikan data tersimpan
+
         self.env.cr.commit()
-        
-        # Return notification
+
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
                 'title': 'TSIN Created',
-                'message': f'TSIN document {new_picking.name} has been created automatically at {new_picking.location_dest_id.name}',
+                'message': (
+                    f'Dokumen TSIN {new_picking.name} berhasil dibuat '
+                    f'di {new_picking.location_dest_id.name}'
+                ),
                 'type': 'success',
                 'sticky': True,
             }
