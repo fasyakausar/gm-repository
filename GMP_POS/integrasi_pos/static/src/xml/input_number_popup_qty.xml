@@ -17,11 +17,14 @@
                     <!-- ✅ Display formatted value (read-only) -->
                     <input
                         type="text"
+                        t-ref="numberInput"
                         t-att-value="state.displayValue"
-                        readonly="readonly"
+                        t-on-input="onInputKeyboard"
+                        t-on-keydown="onKeyDown"
                         placeholder="0"
                         class="form-control text-center fw-bold"
                         style="font-size: 28px; letter-spacing: 1px;"
+                        inputmode="decimal"
                     />
                 </div>
 

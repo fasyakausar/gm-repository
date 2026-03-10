@@ -3,7 +3,7 @@
 import { AbstractAwaitablePopup } from "@point_of_sale/app/popup/abstract_awaitable_popup";
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
-import { useState, useRef, onMounted } from "@odoo/owl";
+import { useState, useRef, onMounted, onWillUnmount } from "@odoo/owl";
 import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 
 export class CustomNumpadPopUp extends AbstractAwaitablePopup {
@@ -17,16 +17,43 @@ export class CustomNumpadPopUp extends AbstractAwaitablePopup {
         this.rpc = useService("rpc");
         this.inputRef = useRef("pinInput");
 
-        onMounted(() => {
-            this.inputRef.el?.focus();
-        });
-
         this.state = useState({
             inputValue: "",
             displayValue: "",
             note: "",
         });
 
+        // ✅ Keyboard handler untuk PIN
+        this._onKeyDown = (ev) => {
+            if (ev.defaultPrevented) return;
+
+            const key = ev.key;
+
+            if (key >= "0" && key <= "9") {
+                ev.preventDefault();
+                this.addNumber(key);
+            } else if (key === "Backspace") {
+                ev.preventDefault();
+                this.removeLastChar();
+            } else if (key === "Enter") {
+                ev.preventDefault();
+                this.confirmInput();
+            } else if (key === "Escape") {
+                ev.preventDefault();
+                this.cancel();
+            }
+        };
+
+        onMounted(() => {
+            this.inputRef.el?.focus();
+            window.addEventListener("keydown", this._onKeyDown);
+        });
+
+        onWillUnmount(() => {
+            window.removeEventListener("keydown", this._onKeyDown);
+        });
+
+        // Handling typing langsung di input field (fallback)
         this.handleTyping = (ev) => {
             const input = ev.target.value;
             const lastChar = input.slice(-1);
@@ -45,6 +72,16 @@ export class CustomNumpadPopUp extends AbstractAwaitablePopup {
         if (this.state.inputValue.length >= 4) return;
         this.state.inputValue += num;
         this.state.displayValue += "*";
+    }
+
+    onKeyDown(ev) {
+        if (ev.key === "Enter") {
+            ev.preventDefault();
+            this.confirmInput();
+        } else if (ev.key === "Escape") {
+            ev.preventDefault();
+            this.cancel();
+        }
     }
 
     removeLastChar() {

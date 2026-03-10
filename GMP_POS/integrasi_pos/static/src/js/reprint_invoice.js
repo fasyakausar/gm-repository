@@ -54,13 +54,14 @@ patch(ReprintReceiptButton.prototype, {
     setup() {
         super.setup();
         this.popup = useService("popup");
+        this.pos = useService("pos"); 
     },
 
     async click() {
         if (!this.props.order) return;
 
         const config = this.pos.config || {};
-        const requireManagerValidation = config.validate_reprint_receipt;
+        const requireManagerValidation = this.pos?.config?.validate_reprint_receipt === true;
 
         if (requireManagerValidation) {
             const result = await this.popup.add(CustomNumpadPopUp, {

@@ -56,7 +56,6 @@
         'views/hr_employee_view.xml',
         'views/loyalty_card_view.xml',
         'views/account_journal_view.xml',
-        'views/views_master_type.xml',
         'views/account_account_view.xml',
         'views/pos_orderline_views.xml',
         # 'views/inventory_stock_view.xml',
@@ -75,6 +74,7 @@
         'views/report_invoice_line_number.xml',
         'views/paper_format_a5.xml',
         'views/sale_order_wizard_pin.xml',
+        'views/mapping_tax_sap_view.xml',
         # 'views/report_faktur_pajak_a5_action.xml',
         # 'views/report_faktur_pajak_template.xml',
         # 'reports/sales_report_view.xml',
@@ -111,6 +111,7 @@
         'web.assets_backend': [
             'dev_pos/static/src/xml/button_generate_report.xml',
             'dev_pos/static/src/js/button_generate_report.js',
+            'dev_pos/static/src/js/sale_order_warehouse.js',
         ],
     },
     'license': 'LGPL-3',

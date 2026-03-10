@@ -51,6 +51,13 @@
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
         </xpath>
+
+        <!-- Hilangkan button action_open_label_type -->
+        <!-- Invisible button action_open_label_type -->
+        <xpath expr="//button[@name='action_open_label_type']" position="attributes">
+          <attribute name="invisible">True</attribute>
+        </xpath>
+
       </field>
     </record>
 

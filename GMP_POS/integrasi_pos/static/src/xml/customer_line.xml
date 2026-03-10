@@ -5,6 +5,7 @@
         <xpath expr="//table[@class='partner-list table table-striped w-100']//thead//th[@class='partner-line-email py-2']" position="after">
             <th class="partner-line-groups py-2">Groups</th>
             <th class="partner-line-bptype py-2">BP Type</th>
+            <th class="partner-line-company py-2">Company</th>
         </xpath>
     </t>
 
@@ -35,6 +36,18 @@
                 </span>
                 <span t-else="" class="badge bg-secondary">
                     -
+                </span>
+            </td>
+
+            <!-- Kolom Company -->
+            <td class="partner-line-company">
+                <span t-if="props.partner.company_id">
+                    <i class="fa fa-fw fa-building me-2"/>
+                    <t t-esc="Array.isArray(props.partner.company_id) ? props.partner.company_id[1] : props.partner.company_id" />
+                </span>
+                <span t-else="" class="text-muted">
+                    <i class="fa fa-fw fa-globe me-2"/>
+                    All Companies
                 </span>
             </td>
         </xpath>

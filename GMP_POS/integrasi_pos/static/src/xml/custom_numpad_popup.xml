@@ -9,8 +9,10 @@
                         type="password"
                         t-att-value="state.displayValue"
                         t-on-input="handleTyping"
+                        t-on-keydown="onKeyDown"
                         t-ref="pinInput"
                         placeholder="Enter PIN"
+                        inputmode="numeric"
                     />
                 </div>
 
