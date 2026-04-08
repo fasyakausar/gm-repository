@@ -139,17 +139,100 @@ patch(ReprintReceiptScreen.prototype, {
     },
 
     /**
+     * ✅ FIX: Fetch account_move_name dari backend untuk Invoice No
+     */
+    async fetchAccountMoveName(order) {
+        const orderId = order.id || order.server_id || order.backendId;
+
+        if (!orderId || typeof orderId !== 'number' || orderId <= 0) {
+            console.warn("⚠️ Invalid order ID, cannot fetch account_move_name");
+            return null;
+        }
+
+        try {
+            console.log(`📥 Fetching account_move_name from backend for order ID: ${orderId}`);
+
+            const orderData = await this.orm.read(
+                'pos.order',
+                [orderId],
+                ['account_move', 'name', 'pos_reference']
+            );
+
+            if (orderData && orderData.length > 0) {
+                const backendData = orderData[0];
+
+                // account_move adalah Many2one field: [id, "INV/2026/XXXXX"]
+                if (backendData.account_move) {
+                    let moveName = null;
+
+                    if (Array.isArray(backendData.account_move) && backendData.account_move.length >= 2) {
+                        // Format Many2one: [id, name]
+                        moveName = backendData.account_move[1];
+                    } else if (typeof backendData.account_move === 'string') {
+                        moveName = backendData.account_move;
+                    } else if (typeof backendData.account_move === 'number') {
+                        // Jika hanya ID, fetch nama invoice secara terpisah
+                        try {
+                            const moveData = await this.orm.read(
+                                'account.move',
+                                [backendData.account_move],
+                                ['name']
+                            );
+                            if (moveData && moveData.length > 0) {
+                                moveName = moveData[0].name;
+                            }
+                        } catch (e) {
+                            console.warn("⚠️ Failed to fetch account.move name:", e.message);
+                        }
+                    }
+
+                    if (moveName) {
+                        console.log(`✅ account_move_name fetched: ${moveName}`);
+                        return moveName;
+                    }
+                }
+
+                console.warn("⚠️ account_move not found or empty for order:", orderId);
+                return null;
+            }
+        } catch (error) {
+            console.warn("⚠️ Could not fetch account_move_name from backend:", error);
+        }
+
+        return null;
+    },
+
+    /**
      * ✅ Get order data for printing (use local export_for_printing)
+     *    + inject account_move_name dari backend
      */
     async getOrderDataForPrinting(order) {
         console.log("📄 Getting order data for printing...");
         
         try {
+            // ✅ FIX: Selalu fetch account_move_name dari backend sebelum print
+            // karena objek order lokal mungkin tidak memiliki data ini
+            const accountMoveName = await this.fetchAccountMoveName(order);
+
+            if (accountMoveName) {
+                // Simpan ke objek order lokal agar export_for_printing bisa menggunakannya
+                order.account_move_name = accountMoveName;
+                console.log(`✅ Injected account_move_name: ${accountMoveName}`);
+            } else {
+                console.warn("⚠️ account_move_name tidak ditemukan, Invoice No akan N/A");
+            }
+
             // Method 1: Use export_for_printing if available
             if (typeof order.export_for_printing === 'function') {
                 console.log("✅ Using order.export_for_printing()");
                 const data = order.export_for_printing();
                 
+                // ✅ FIX: Inject account_move_name ke data hasil export
+                // karena export_for_printing() mungkin tidak menyertakannya
+                if (accountMoveName) {
+                    data.account_move_name = accountMoveName;
+                }
+
                 // ✅ IMPORTANT: Override is_printed to true for COPY receipt
                 data.is_printed = true;
                 
@@ -164,6 +247,7 @@ patch(ReprintReceiptScreen.prototype, {
                 name: order.name,
                 pos_reference: order.pos_reference,
                 date_order: order.date_order || order.creation_date,
+                account_move_name: accountMoveName || order.account_move_name || null, // ✅ FIX
                 is_printed: true, // ✅ Set to true for COPY receipt
                 amount_total: order.get_total_with_tax ? order.get_total_with_tax() : order.amount_total,
                 amount_tax: order.get_total_tax ? order.get_total_tax() : order.amount_tax,
@@ -278,12 +362,15 @@ patch(ReprintReceiptScreen.prototype, {
             
             console.log("✅ Order validation passed, proceeding to print...");
             
-            // ✅ STEP 3: Get order data for printing (from local object)
+            // ✅ STEP 3: Get order data for printing
+            // (termasuk fetch account_move_name dari backend)
             const orderData = await this.getOrderDataForPrinting(selectedOrder);
             
             if (!orderData) {
                 throw new Error("Unable to get order data for printing");
             }
+
+            console.log("📋 Order data account_move_name:", orderData.account_move_name);
             
             // ✅ STEP 4: Generate HTML from order data
             const html = await this.generateReceiptHTML(orderData);

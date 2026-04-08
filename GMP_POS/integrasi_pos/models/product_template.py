@@ -15,6 +15,24 @@ class ProductTemplate(models.Model):
     brand = fields.Char(string="Brand", readonly=True)
 
     def write(self, vals):
+        if self._context.get('force_uom_update'):
+            if 'uom_id' in vals or 'uom_po_id' in vals:
+                for template in self:
+                    if 'uom_id' in vals:
+                        self.env.cr.execute(
+                            "UPDATE product_template SET uom_id = %s WHERE id = %s",
+                            (vals['uom_id'], template.id)
+                        )
+                    if 'uom_po_id' in vals:
+                        self.env.cr.execute(
+                            "UPDATE product_template SET uom_po_id = %s WHERE id = %s",
+                            (vals['uom_po_id'], template.id)
+                        )
+                self.invalidate_recordset(['uom_id', 'uom_po_id'])
+                vals = {k: v for k, v in vals.items() if k not in ('uom_id', 'uom_po_id')}
+                if not vals:
+                    return True
+                
         # Field-field yang readonly - tidak boleh diubah
         readonly_fields = [
             'id_mc', 'vit_sub_div', 'vit_item_kel', 'vit_item_type', 'is_fixed_price', 'brand',

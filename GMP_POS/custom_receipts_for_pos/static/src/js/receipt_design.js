@@ -54,6 +54,12 @@ patch(OrderReceipt.prototype, {
         const ra      = this.pos.receipt_address || {};
         const self    = this;
 
+        // Hitung total tax dari data yang tersedia
+        const amountTotal = this.props.data?.amount_total || 0;
+        const amountWithoutTax = this.props.data?.total_without_tax || 0;
+        const computedTotalTax = amountTotal - amountWithoutTax;
+        const totalTax = this.props.data?.total_tax || computedTotalTax;
+
         return {
             pos:          this.pos,
             data:         this.props.data,
@@ -62,6 +68,7 @@ patch(OrderReceipt.prototype, {
             orderlines:   this.props.data.orderlines,
             paymentlines: this.props.data.paymentlines,
             partner:      partner,
+            totalTax:     totalTax,   // ✅ Tambahkan ini
 
             // ── helper functions ──────────────────────────────────────────────
             formatDate:   (val)    => self.formatReceiptDate(val),

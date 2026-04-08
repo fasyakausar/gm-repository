@@ -75,7 +75,6 @@ patch(PosStore.prototype, {
                     digit_akhir: parseInt(barcodeConfig.digit_akhir || 4),
                     prefix_timbangan: barcodeConfig.prefix_timbangan || "",
                     panjang_barcode: parseInt(barcodeConfig.panjang_barcode || 7),
-                    multiple_barcode_activate: barcodeConfig.multiple_barcode_activate || false,
                 });
                 console.log("✅ Barcode Config loaded:", {
                     digit_awal: this.config.digit_awal,

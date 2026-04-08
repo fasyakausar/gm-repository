@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <!-- Inherits pos.config form view -->
     <record id="pos_config_view_form" model="ir.ui.view">
         <field name="name">pos.config.view.form.inherit.custom.receipts.for.pos</field>
         <field name="model">pos.config</field>
@@ -8,17 +7,31 @@
         <field name="arch" type="xml">
             <xpath expr="//setting[@id='other_devices']" position="after">
 
+                <!-- Flag: disembunyikan, hanya dipakai sebagai kondisi readonly -->
+                <field name="is_not_admin_access" invisible="1"/>
+
+                <!-- ══════════════════════════════════════════════════════════
+                     Default Customer
+                ══════════════════════════════════════════════════════════════ -->
+                <setting string="Default Customer"
+                         help="Pelanggan default yang otomatis dipilih saat membuka sesi POS.">
+                    <div class="content-group mt16">
+                        <field name="default_partner_id" colspan="4" nolabel="1" options="{'no_open': True}"
+                               invisible="is_not_admin_access"/>
+                    </div>
+                </setting>
+
                 <!-- ══════════════════════════════════════════════════════════
                      Custom Receipt Design
                 ══════════════════════════════════════════════════════════════ -->
                 <setting title="Customize the POS receipts"
                          string="Custom Receipt"
                          help="Use custom receipt designs">
-                    <field name="is_custom_receipt"/>
+                    <field name="is_custom_receipt"
+                           invisible="is_not_admin_access"/>
                     <div class="content-group mt16">
-                        <field name="receipt_design"
-                               invisible="not is_custom_receipt"
-                               required="True"/>
+                        <field name="receipt_design" options="{'no_open': True}"
+                               invisible="not is_custom_receipt or is_not_admin_access"/>
                     </div>
                     <div class="content-group mt16">
                         <field name="design_receipt" invisible="1"/>
@@ -33,20 +46,22 @@
                     <div class="content-group">
                         <div class="row mt8">
                             <label for="receipt_show_logo" class="col-lg-3 o_light_label"/>
-                            <field name="receipt_show_logo" class="col-lg-9"/>
+                            <field name="receipt_show_logo" class="col-lg-9"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4" invisible="not receipt_show_logo">
                             <label for="receipt_logo_height" class="col-lg-3 o_light_label"/>
                             <field name="receipt_logo_height" class="col-lg-3"
-                                   placeholder="60"/>
+                                   placeholder="60"
+                                   invisible="is_not_admin_access"/>
                             <span class="col-lg-6 o_light_label" style="padding-top:5px;">px</span>
                         </div>
-                        <!-- Preview logo saat ini -->
                         <div class="row mt4" invisible="not receipt_show_logo">
                             <label for="logo" class="col-lg-3 o_light_label"/>
                             <div class="col-lg-9">
                                 <field name="logo" widget="image"
-                                       options="{'size': [0, 60], 'preview_image': 'logo'}"/>
+                                       options="{'size': [0, 60], 'preview_image': 'logo'}"
+                                       invisible="is_not_admin_access"/>
                             </div>
                         </div>
                     </div>
@@ -56,33 +71,38 @@
                      Bold per Section
                 ══════════════════════════════════════════════════════════════ -->
                 <setting string="Tebal Teks per Bagian Struk"
-                         help="Aktifkan atau nonaktifkan teks tebal (bold) untuk setiap bagian struk secara terpisah.">
+                         help="Aktifkan atau nonaktifkan teks tebal untuk setiap bagian struk.">
                     <div class="content-group">
                         <div class="row mt8">
                             <label for="receipt_bold_header" class="col-lg-5 o_light_label"/>
-                            <field name="receipt_bold_header" class="col-lg-7"/>
+                            <field name="receipt_bold_header" class="col-lg-7"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_bold_info" class="col-lg-5 o_light_label"/>
-                            <field name="receipt_bold_info" class="col-lg-7"/>
+                            <field name="receipt_bold_info" class="col-lg-7"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_bold_items" class="col-lg-5 o_light_label"/>
-                            <field name="receipt_bold_items" class="col-lg-7"/>
+                            <field name="receipt_bold_items" class="col-lg-7"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_bold_total" class="col-lg-5 o_light_label"/>
-                            <field name="receipt_bold_total" class="col-lg-7"/>
+                            <field name="receipt_bold_total" class="col-lg-7"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_bold_summary" class="col-lg-5 o_light_label"/>
-                            <field name="receipt_bold_summary" class="col-lg-7"/>
+                            <field name="receipt_bold_summary" class="col-lg-7"
+                                   invisible="is_not_admin_access"/>
                         </div>
                     </div>
                 </setting>
 
                 <!-- ══════════════════════════════════════════════════════════
-                     Alamat Struk per POS
+                     Alamat Struk
                 ══════════════════════════════════════════════════════════════ -->
                 <setting string="Alamat Struk"
                          help="Informasi yang ditampilkan di header struk untuk toko ini.">
@@ -90,41 +110,148 @@
                         <div class="row mt8">
                             <label for="receipt_store_name" class="col-lg-3 o_light_label"/>
                             <field name="receipt_store_name" class="col-lg-9"
-                                   placeholder="GMP Elektrik Lippo Cikarang"/>
+                                   placeholder="GMP Elektrik Lippo Cikarang"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_company_name" class="col-lg-3 o_light_label"/>
                             <field name="receipt_company_name" class="col-lg-9"
-                                   placeholder="PT GLOBAL MULTIPARTS"/>
+                                   placeholder="PT GLOBAL MULTIPARTS"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_street" class="col-lg-3 o_light_label"/>
                             <field name="receipt_street" class="col-lg-9"
-                                   placeholder="Jl. Sriwijaya Ruko Olimpic Blok A.8 Cibatu"/>
+                                   placeholder="Jl. Sriwijaya Ruko Olimpic Blok A.8 Cibatu"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_city_zip" class="col-lg-3 o_light_label"/>
                             <field name="receipt_city_zip" class="col-lg-9"
-                                   placeholder="Lippo Cikarang 17550"/>
+                                   placeholder="Lippo Cikarang 17550"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_phone" class="col-lg-3 o_light_label"/>
                             <field name="receipt_phone" class="col-lg-9"
-                                   placeholder="(021) 89841952"/>
+                                   placeholder="(021) 89841952"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_wa" class="col-lg-3 o_light_label"/>
                             <field name="receipt_wa" class="col-lg-9"
-                                   placeholder="0877-7909-0747"/>
+                                   placeholder="0877-7909-0747"
+                                   invisible="is_not_admin_access"/>
                         </div>
                         <div class="row mt4">
                             <label for="receipt_npwp" class="col-lg-3 o_light_label"/>
                             <field name="receipt_npwp" class="col-lg-9"
-                                   placeholder="021.100.283.7-413.000"/>
+                                   placeholder="021.100.283.7-413.000"
+                                   invisible="is_not_admin_access"/>
                         </div>
                     </div>
                 </setting>
 
+                <!-- ══════════════════════════════════════════════════════════
+                     Manager Validation
+                ══════════════════════════════════════════════════════════════ -->
+                <setting string="Enable Manager Validation"
+                         help="Jika diaktifkan, beberapa operasi di POS akan memerlukan persetujuan manager.">
+                    <field name="manager_validation"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Manager"
+                         help="Manager yang bertanggung jawab untuk validasi POS."
+                         invisible="not manager_validation">
+                    <div class="content-group mt16">
+                        <field name="manager_id" colspan="4" nolabel="1" options="{'no_open': True}"
+                               invisible="is_not_admin_access"/>
+                    </div>
+                </setting>
+
+                <setting string="Void Item"
+                         help="Wajib persetujuan manager untuk menghapus order line."
+                         invisible="not manager_validation">
+                    <field name="validate_order_line_deletion"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Apply Discount"
+                         help="Wajib persetujuan manager sebelum menerapkan diskon."
+                         invisible="not manager_validation">
+                    <field name="validate_discount_button"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Discount Amount"
+                         help="Wajib persetujuan manager untuk menerapkan nominal diskon."
+                         invisible="not manager_validation">
+                    <field name="validate_discount_amount"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Price Change"
+                         help="Wajib persetujuan manager untuk mengubah harga produk."
+                         invisible="not manager_validation">
+                    <field name="validate_price_change"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Add/Remove Quantity"
+                         help="Wajib persetujuan manager untuk mengubah kuantitas produk."
+                         invisible="not manager_validation">
+                    <field name="validate_add_remove_quantity"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Refund"
+                         help="Wajib persetujuan manager sebelum memproses refund."
+                         invisible="not manager_validation">
+                    <field name="validate_refund"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Order Deletion"
+                         help="Wajib persetujuan manager untuk menghapus order."
+                         invisible="not manager_validation">
+                    <field name="validate_order_deletion"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Void Sales"
+                         help="Wajib persetujuan manager untuk void/reset order."
+                         invisible="not manager_validation">
+                    <field name="validate_void_sales"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Reprint Receipt"
+                         help="Wajib persetujuan manager untuk mencetak ulang struk."
+                         invisible="not manager_validation">
+                    <field name="validate_reprint_receipt"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Reprint Invoice"
+                         help="Wajib persetujuan manager untuk mencetak ulang invoice."
+                         invisible="not manager_validation">
+                    <field name="validate_reprint_invoice"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+                <setting string="Pricelist"
+                         help="Wajib persetujuan manager untuk mengubah pricelist."
+                         invisible="not manager_validation">
+                    <field name="validate_pricelist"
+                           invisible="is_not_admin_access"/>
+                </setting>
+
+            </xpath>
+
+            <!-- Employee Login: invisible berbasis flag untuk basic & advanced employee -->
+            <xpath expr="//field[@name='module_pos_hr']/following-sibling::div[hasclass('content-group')]" position="attributes">
+                <attribute name="invisible">not module_pos_hr or is_not_admin_access</attribute>
             </xpath>
         </field>
     </record>
