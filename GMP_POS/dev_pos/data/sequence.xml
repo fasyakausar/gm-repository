@@ -11,11 +11,12 @@
         </record>
 
         <record id="seq_customer_code_company_2" model="ir.sequence">
-            <field name="name">Customer Code - Company B</field>
+            <field name="name">Customer Code - PT Global Multi Elektrika</field>
             <field name="code">res.partner.customer.code</field>
-            <field name="prefix"></field>
+            <field name="prefix">GME-</field>
             <field name="padding">5</field>
-            <field name="company_id" eval="21"/>  <!-- ID = 21 dari metadata -->
+            <field name="company_id" eval="21"/>
         </record>
+        
     </data>
 </odoo>

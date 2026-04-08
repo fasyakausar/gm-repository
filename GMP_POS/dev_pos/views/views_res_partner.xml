@@ -12,6 +12,7 @@
             <field name="gm_bp_tax"/>
             <field name="vit_customer_group"/>
             <field name="is_integrated" readonly="1"/>
+            <field name="allow_integrated_override" readonly="1"/>
             <field name="index_store" widget="many2many_tags" readonly="1"/>
         </xpath>
         
@@ -32,6 +33,20 @@
           <attribute name="force_save">1</attribute>
         </xpath>
       </field>
+    </record>
+
+    <record id="view_partner_form_hide_pricelist_for_cashier" model="ir.ui.view">
+        <field name="name">res.partner.form.hide.pricelist.cashier</field>
+        <field name="model">res.partner</field>
+        <field name="inherit_id" ref="product.view_partner_property_form"/>
+        <field name="arch" type="xml">
+            <field name="property_product_pricelist" position="before">
+                <field name="is_cashier" invisible="1"/>
+            </field>
+            <field name="property_product_pricelist" position="attributes">
+                <attribute name="readonly">is_cashier == True</attribute>
+            </field>
+        </field>
     </record>
 
   </data>

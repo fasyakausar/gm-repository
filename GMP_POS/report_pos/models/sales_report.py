@@ -205,6 +205,8 @@ class SalesReportDetail(models.TransientModel):
             'User', 'Kasir', 'Customer Code', 'Customer Name', 'Kode Currency', 'Kode Store','Nama Store',
             'Invoice No.', 'Order No.', 'Session', 'No Retur', 'No HP', 'Tanggal', 'Tanggal Jatuh Tempo',
             'DP Code',  # New column added here
+            'Nota Online',  # tambah
+            'Nota Manual',        # tambah
             'Total Quantity', 'Total Bersih'
         ]
 
@@ -246,9 +248,11 @@ class SalesReportDetail(models.TransientModel):
             worksheet.write(row, 11, order.partner_id.mobile or '')
             worksheet.write(row, 12, local_date_order.strftime('%d/%m/%Y %H:%M:%S'))
             worksheet.write(row, 13, local_date_order.strftime('%d/%m/%Y %H:%M:%S'))
-            worksheet.write(row, 14, dp_code)  # DP Code column
-            worksheet.write(row, 15, total_qty or '')
-            worksheet.write(row, 16, self.format_number(total_bersih) if total_bersih else '')
+            worksheet.write(row, 14, dp_code)
+            worksheet.write(row, 15, order.gm_invoice_e_commerce or '')  # tambah
+            worksheet.write(row, 16, order.gm_nota_manual or '')          # tambah
+            worksheet.write(row, 17, total_qty or '')
+            worksheet.write(row, 18, self.format_number(total_bersih) if total_bersih else '')
             row += 1
 
         workbook.close()

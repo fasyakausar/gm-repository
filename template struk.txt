@@ -1,79 +1,94 @@
-<div class="pos-receipt" style="max-width: 58mm; margin: 0; padding: 1mm; font-family: Arial, sans-serif;">
+<div class="pos-receipt"
+     style="max-width:58mm; margin:0; padding:1mm; font-family:Arial, sans-serif;">
 
-    <!-- Header Company Info - CENTER -->
-    <div style="font-size:7pt; text-align:center; font-weight:700; line-height:1.3; margin-bottom:1mm;">
-        <t t-if="props.data.headerData?.company?.name">
-            <div style="font-size:8pt;"><t t-esc="props.data.headerData.company.name" /></div>
-        </t>
-    </div>
-    <div style="font-size:6pt; text-align:center; font-weight:700; line-height:1.3; margin-bottom:1mm;">
-        <t t-if="props.pos.company?.street">
-            <div><t t-esc="props.pos.company.street"/></div>
-        </t>
-        <t t-if="props.pos.company?.street2">
-            <div><t t-esc="props.pos.company.street2"/></div>
-        </t>
-        <div>
-            <t t-if="props.pos.company?.city">
-                <t t-esc="props.pos.company.city"/>
-            </t>
-            <t t-if="props.pos.company?.state_id">
-                <t t-if="props.pos.company.city">, </t>
-                <t t-esc="props.pos.company.state_id[1]"/>
-            </t>
-            <t t-if="props.pos.company?.zip">
-                <t t-esc="props.pos.company.zip"/>
-            </t>
+    <!-- LOGO -->
+    <t t-if="props.showLogo and props.logoData">
+        <div style="text-align:center; margin-bottom:1.5mm;">
+            <img t-attf-src="data:image/png;base64,{{ props.logoData }}"
+                 t-attf-style="height:{{ props.logoHeight or 60 }}px; max-width:100%; object-fit:contain;"/>
         </div>
-        <t t-if="props.pos.company?.phone">
-            <div><t t-esc="props.pos.company.phone"/></div>
+    </t>
+
+    <!-- HEADER: Nama Toko & Alamat -->
+    <t t-set="fwHeader" t-value="props.boldHeader ? '700' : '400'"/>
+    <div t-attf-style="font-size:8pt; text-align:center; font-weight:{{ fwHeader }}; line-height:1.3; margin-bottom:0.5mm;">
+        <t t-set="ra" t-value="props.pos.receipt_address or {}"/>
+        <t t-if="ra.receipt_store_name">
+            <div><t t-esc="ra.receipt_store_name"/></div>
         </t>
-        <t t-if="props.pos.company?.vat">
-            <div>NPWP : <t t-esc="props.pos.company.vat"/></div>
+        <t t-else="">
+            <t t-if="props.data.headerData and props.data.headerData.company and props.data.headerData.company.name">
+                <div><t t-esc="props.data.headerData.company.name"/></div>
+            </t>
         </t>
     </div>
 
-    <!-- Separator Line -->
-    <div style="border-top:1px solid black; margin: 1mm 0;"></div>
+    <div t-attf-style="font-size:6pt; text-align:center; font-weight:{{ fwHeader }}; line-height:1.3; margin-bottom:1mm;">
+        <t t-set="ra" t-value="props.pos.receipt_address or {}"/>
+        <t t-set="addr_street"   t-value="ra.receipt_street or ''"/>
+        <t t-set="addr_city_zip" t-value="ra.receipt_city_zip or ''"/>
+        <t t-set="addr_company"  t-value="ra.receipt_company_name or ''"/>
+        <t t-set="addr_phone"    t-value="ra.receipt_phone or ''"/>
+        <t t-set="addr_wa"       t-value="ra.receipt_wa or ''"/>
+        <t t-set="addr_npwp"     t-value="ra.receipt_npwp or ''"/>
 
-    <!-- Receipt Info - LEFT ALIGNED -->
-    <div style="font-size:7pt; font-weight:700; line-height:1.4;">
-        <div style="margin-bottom: 0.6mm;">
-            <span style="display:inline-block; width:40%;">Transaction No:</span>
-            <span style="font-weight:800;"><t t-esc="props.order?.name || 'N/A'"/></span>
+        <t t-if="addr_street">   <div><t t-esc="addr_street"/></div></t>
+        <t t-if="addr_city_zip"> <div><t t-esc="addr_city_zip"/></div></t>
+        <t t-if="addr_company">  <div><t t-esc="addr_company"/></div></t>
+        <t t-if="addr_phone">    <div>Tlp: <t t-esc="addr_phone"/></div></t>
+        <t t-if="addr_wa">       <div>Wa: <t t-esc="addr_wa"/></div></t>
+        <t t-if="addr_npwp">     <div>Npwp: <t t-esc="addr_npwp"/></div></t>
+    </div>
+
+    <div style="border-top:1px solid black; margin:1mm 0;"></div>
+
+    <!-- INFO TRANSAKSI -->
+    <t t-set="fwInfo" t-value="props.boldInfo ? '700' : '400'"/>
+    <div t-attf-style="font-size:7pt; font-weight:{{ fwInfo }}; line-height:1.4;">
+        <div style="margin-bottom:0.6mm;">
+            <span style="display:inline-block; width:40%;">Invoice No:</span>
+            <span t-attf-style="font-weight:{{ props.boldInfo ? '800' : '400' }};">
+                <t t-set="invNo"
+                   t-value="(props.order and props.order.account_move_name) or
+                            (props.receipt and props.receipt.account_move_name) or
+                            (props.data and props.data.account_move_name) or
+                            (props.order and props.order.account_move and props.order.account_move[1]) or
+                            ''"/>
+                <t t-if="invNo"><t t-esc="invNo"/></t><t t-else="">N/A</t>
+            </span>
         </div>
-        <div style="margin-bottom: 0.6mm;">
+        <div style="margin-bottom:0.6mm;">
             <span style="display:inline-block; width:40%;">Transaction Date:</span>
-            <span style="font-weight:800;">
-                <t t-if="props.order?.date_order">
-                    <t t-esc="props.order.date_order.toString().split('T')[0] + ' ' + props.order.date_order.toString().split('T')[1].split('.')[0]"/>
+            <span t-attf-style="font-weight:{{ props.boldInfo ? '800' : '400' }};">
+                <t t-if="props.order and props.order.date_order">
+                    <t t-esc="props.formatDate(props.order.date_order)"/>
                 </t>
-                <t t-elif="props.order?.creation_date">
-                    <t t-esc="props.order.creation_date.toString().split('T')[0] + ' ' + props.order.creation_date.toString().split('T')[1].split('.')[0]"/>
+                <t t-elif="props.order and props.order.creation_date">
+                    <t t-esc="props.formatDate(props.order.creation_date)"/>
                 </t>
-                <t t-else="">
-                    <t t-esc="props.order?.validation_date ? props.order.validation_date.toString().split('T')[0] + ' ' + props.order.validation_date.toString().split('T')[1].split('.')[0] : 'N/A'"/>
+                <t t-elif="props.order and props.order.validation_date">
+                    <t t-esc="props.formatDate(props.order.validation_date)"/>
                 </t>
+                <t t-else="">N/A</t>
             </span>
         </div>
-        <div style="margin-bottom: 0.6mm;">
+        <div style="margin-bottom:0.6mm;">
             <span style="display:inline-block; width:40%;">Print Date:</span>
-            <span style="font-weight:800;">
-                <t t-if="props.receipt?.date">
-                    <t t-esc="props.receipt.date.toString().includes('/') ? (props.receipt.date.toString().split(' ')[0].split('/')[2] + '-' + props.receipt.date.toString().split(' ')[0].split('/')[1].padStart(2, '0') + '-' + props.receipt.date.toString().split(' ')[0].split('/')[0].padStart(2, '0') + ' ' + props.receipt.date.toString().split(' ')[1]) : props.receipt.date"/>
+            <span t-attf-style="font-weight:{{ props.boldInfo ? '800' : '400' }};">
+                <t t-if="props.receipt and props.receipt.date">
+                    <t t-esc="props.formatDate(props.receipt.date)"/>
                 </t>
-                <t t-else="">
-                    <t t-esc="props.order?.validation_date ? (props.order.validation_date.toString().includes('/') ? (props.order.validation_date.toString().split(' ')[0].split('/')[2] + '-' + props.order.validation_date.toString().split(' ')[0].split('/')[1].padStart(2, '0') + '-' + props.order.validation_date.toString().split(' ')[0].split('/')[0].padStart(2, '0') + ' ' + props.order.validation_date.toString().split(' ')[1]) : props.order.validation_date) : 'N/A'"/>
-                </t>
+                <t t-else="">N/A</t>
             </span>
         </div>
-        <div style="margin-bottom: 0.6mm;">
+        <div style="margin-bottom:0.6mm;">
             <span style="display:inline-block; width:40%;">Cashier:</span>
-            <span style="font-weight:800;"><t t-esc='props.receipt?.headerData?.cashier || "N/A"' /></span>
+            <span t-attf-style="font-weight:{{ props.boldInfo ? '800' : '400' }};">
+                <t t-esc="props.receipt and props.receipt.headerData and props.receipt.headerData.cashier ? props.receipt.headerData.cashier : 'N/A'"/>
+            </span>
         </div>
-        
-        <div style="margin-top: 1mm; text-align: right;">
-            <t t-if="props.order?.is_printed or props.data?.is_printed">
+        <div style="margin-top:1mm; text-align:right;">
+            <t t-if="(props.order and props.order.is_printed) or (props.data and props.data.is_printed)">
                 <span style="font-size:7pt; font-weight:900;">Copy Receipt</span>
             </t>
             <t t-else="">
@@ -81,43 +96,33 @@
             </t>
         </div>
     </div>
-        
-    <!-- Separator Line -->
-    <div style="border-top:1px solid black; margin: 1mm 0;"></div>
 
-    <!-- Order Items - LEFT ALIGNED -->
+    <div style="border-top:1px solid black; margin:1mm 0;"></div>
+
+    <!-- DAFTAR ITEM -->
+    <t t-set="fwItems"     t-value="props.boldItems ? '700' : '400'"/>
+    <t t-set="fwItemsName" t-value="props.boldItems ? '800' : '500'"/>
+
     <t t-if="props.orderlines and props.orderlines.length">
-        <div style="font-size:7pt; font-weight:700; line-height:1.3; margin-bottom: 1mm;">
+        <div t-attf-style="font-size:7pt; font-weight:{{ fwItems }}; line-height:1.3; margin-bottom:1mm;">
             <t t-foreach="props.orderlines" t-as="orderline" t-key="orderline_index">
-                <div style="margin-bottom: 1mm;">
-                    <div style="font-weight: 800; word-wrap: break-word; overflow-wrap: break-word; margin-bottom: 0.4mm;">
-                        <t t-if="orderline_index + 1 &lt; 10">0<t t-esc="orderline_index + 1"/>.</t>
-                        <t t-else=""><t t-esc="orderline_index + 1"/>.</t>
-                        
-                        <t t-if="orderline.gift_card_code">
-                            <t t-esc="orderline.gift_card_code"/> - 
-                        </t>
-                        
-                        <t t-esc="orderline.productName || 'Unknown Product'"/>
+                <div style="margin-bottom:1mm;">
+                    <div t-attf-style="font-weight:{{ fwItemsName }}; word-wrap:break-word; overflow-wrap:break-word; margin-bottom:0.4mm;">
+                        <t t-if="orderline_index + 1 &lt; 10">0<t t-esc="orderline_index + 1"/>.</t><t t-else=""><t t-esc="orderline_index + 1"/>.</t>
+                        <t t-if="orderline.gift_card_code"><t t-esc="orderline.gift_card_code"/> - </t>
+                        <t t-esc="orderline.productName or 'Unknown Product'"/>
                     </div>
-    
-                    <div style="display: flex; justify-content: space-between; padding-left: 0; font-size: 7pt;">
-                        <div>
-                            <t t-esc="orderline.qty"/> x <t t-esc="orderline.realUnitPrice"/>
-                        </div>
-                        <div style="text-align: right; font-weight: 800;">
-                            <t t-esc="(orderline.price || '0').toString().replace('Rp', '').replace(' ', '').trim()"/>
-                        </div>
+                    <div style="display:flex; justify-content:space-between; font-size:7pt;">
+                        <div><t t-esc="orderline.qty"/> x <t t-esc="orderline.realUnitPrice"/></div>
+                        <div t-attf-style="text-align:right; font-weight:{{ fwItemsName }};"><t t-esc="props.stripRp(orderline.price or '0')"/></div>
                     </div>
-    
                     <t t-if="orderline.discount and orderline.discount != '0' and orderline.discount != 0">
-                        <div style="font-size:6pt; font-weight:800; color:#000; margin-top: 0.4mm; background-color: #f0f0f0; padding: 0.2mm 0.5mm; display: inline-block;">
+                        <div style="font-size:6pt; font-weight:800; color:#000; margin-top:0.4mm; background-color:#f0f0f0; padding:0.2mm 0.5mm; display:inline-block;">
                             Discount <t t-esc="orderline.discount"/>%
                         </div>
                     </t>
-    
                     <t t-if="orderline.customerNote and orderline.customerNote != ''">
-                        <div style="font-size:6pt; color:#666; margin-top: 0.4mm; word-wrap: break-word;">
+                        <div style="font-size:6pt; color:#666; margin-top:0.4mm; word-wrap:break-word;">
                             Note: <t t-esc="orderline.customerNote"/>
                         </div>
                     </t>
@@ -126,107 +131,96 @@
         </div>
     </t>
 
-    <!-- Separator Line -->
-    <div style="border-top:1px solid black; margin: 1mm 0;"></div>
+    <div style="border-top:1px solid black; margin:1mm 0;"></div>
 
-    <!-- ✅ ROUNDING Section - MULTIPLE DATA SOURCE CHECKS -->
-    <t t-set="roundingAmt" t-value="props.data?.rounding_amount || props.receipt?.rounding_amount || 0"/>
-    <t t-if="roundingAmt and Math.abs(roundingAmt) >= 0.01">
-        <div style="font-size:7pt; font-weight:700; line-height:1.3; margin-bottom: 0.6mm;">
-            <div style="display: flex; justify-content: space-between;">
+    <!-- TOTAL & PEMBAYARAN -->
+    <t t-set="fwTotal"  t-value="props.boldTotal ? '900' : '500'"/>
+    <t t-set="fwTotal2" t-value="props.boldTotal ? '800' : '400'"/>
+
+    <!-- Rounding -->
+    <t t-set="roundingAmt" t-value="(props.data and props.data.rounding_amount) or (props.receipt and props.receipt.rounding_amount) or 0"/>
+    <t t-if="roundingAmt and (roundingAmt >= 0.01 or roundingAmt &lt;= -0.01)">
+        <div t-attf-style="font-size:7pt; font-weight:{{ fwTotal2 }}; line-height:1.3; margin-bottom:0.6mm;">
+            <div style="display:flex; justify-content:space-between;">
                 <span>Rounding:</span>
-                <span style="text-align:right; font-weight:800;">
-                    <t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency(roundingAmt).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : roundingAmt"/>
-                </span>
+                <span t-attf-style="text-align:right; font-weight:{{ fwTotal }};"><t t-esc="props.fmtCurrency(roundingAmt)"/></span>
             </div>
         </div>
     </t>
 
-    <!-- Totals Section - LEFT ALIGNED -->
-    <div style="font-size:7pt; font-weight:700; line-height:1.3;">
-        <div style="display: flex; justify-content: space-between; font-weight: 900; font-size: 8pt; padding-top: 0.6mm; margin-top: 0.6mm;">
+    <!-- Total -->
+    <div t-attf-style="font-size:8pt; font-weight:{{ fwTotal }}; line-height:1.3; padding-top:0.6mm; margin-top:0.6mm;">
+        <div style="display:flex; justify-content:space-between;">
             <span>TOTAL:</span>
-            <span style="text-align:right;">
-                <t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency(props.data?.amount_total || 0).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : '0'"/>
-            </span>
+            <span style="text-align:right;"><t t-esc="props.fmtCurrency((props.data and props.data.amount_total) or 0)"/></span>
         </div>
     </div>
 
-    <!-- Payment Section - LEFT ALIGNED -->
+    <!-- Payment Lines -->
     <t t-if="props.paymentlines">
-        <div style="margin-top: 1mm; font-size:7pt; font-weight:700; line-height:1.3;">
-            <t t-foreach='props.paymentlines' t-as='line' t-key="line_index">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-                    <span>
-                        <t t-esc='line.name || "Payment"'/>
-                        <t t-if="line.card_number"> (****<t t-esc="line.card_number"/>)</t>:
-                    </span>
-                    <span style="text-align: right; font-weight:800;">
-                        <t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency(line.amount || 0).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : '0'"/>
-                    </span>
+        <div t-attf-style="margin-top:1mm; font-size:7pt; font-weight:{{ fwTotal2 }}; line-height:1.3;">
+            <t t-foreach="props.paymentlines" t-as="line" t-key="line_index">
+                <div style="display:flex; justify-content:space-between; margin-bottom:0.4mm;">
+                    <span><t t-esc="line.name or 'Payment'"/><t t-if="line.card_number"> (****<t t-esc="line.card_number"/>)</t>:</span>
+                    <span t-attf-style="text-align:right; font-weight:{{ fwTotal }};"><t t-esc="props.fmtCurrency(line.amount or 0)"/></span>
                 </div>
             </t>
-            
-            <div style="display: flex; justify-content: space-between; font-weight: 900; margin-top: 0.6mm; border-top: 1px solid black; padding-top: 0.6mm;">
+            <div t-attf-style="display:flex; justify-content:space-between; font-weight:{{ fwTotal }}; margin-top:0.6mm; border-top:1px solid black; padding-top:0.6mm;">
                 <span>Change:</span>
-                <span style="text-align: right;">
-                    <t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency(props.receipt?.change || 0).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : '0'"/>
+                <span style="text-align:right;"><t t-esc="props.fmtCurrency((props.receipt and props.receipt.change) or 0)"/></span>
+            </div>
+        </div>
+    </t>
+
+    <!-- PPN / DPP -->
+    <t t-set="totalTax" t-value="props.totalTax or 0"/>
+    <t t-if="totalTax > 0">
+        <div t-attf-style="font-size:7pt; font-weight:{{ fwTotal2 }}; line-height:1.3; margin-top:0.6mm;">
+            <div style="display:flex; justify-content:space-between; margin-bottom:0.4mm;">
+                <span>DPP: <t t-esc="props.fmtCurrency((props.data and props.data.total_without_tax) or 0)"/></span>
+                <span style="text-align:right; font-weight:{{ fwTotal }};">
+                    PPN: <t t-esc="props.fmtCurrency(totalTax)"/>
                 </span>
             </div>
         </div>
     </t>
 
-    <!-- PPN and DPP Section -->
-    <div style="font-size:7pt; font-weight:700; line-height:1.3; margin-top: 0.6mm;">
-        <t t-if='Math.abs((props.receipt?.amount_total || 0) - (props.receipt?.total_with_tax || 0)) > 0.000001'>
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-                <span>PPN : DPP=<t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency(props.data?.total_without_tax || 0).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : '0'"/></span>
-                <span style="text-align:right; font-weight:800;">
-                    PPN=<t t-esc="props.pos.env.utils?.formatCurrency ? props.pos.env.utils.formatCurrency((props.data?.tax_details || []).map(t => t.amount || 0).reduce((a,b) => a+b, 0)).replace('Rp', '').replace(' ', '').replace('.00', '').trim() : '0'"/>
-                </span>
-            </div>
-        </t>
-    </div>
+    <div style="border-top:1px dashed black; margin:0.6mm 0;"></div>
 
-    <!-- Separator Line -->
-    <div style="border-top:1px dashed black; margin: 0.6mm 0;"></div>
+    <!-- RINGKASAN, CUSTOMER, FOOTER -->
+    <t t-set="fwSum"  t-value="props.boldSummary ? '700' : '400'"/>
+    <t t-set="fwSum2" t-value="props.boldSummary ? '800' : '400'"/>
 
-    <!-- Summary: Total Items & Quantity -->
-    <t t-set="calculatedTotalQty" t-value="0"/>
-    <t t-if="props.orderlines" t-foreach="props.orderlines" t-as="qtyLine" t-key="'sumqty_' + qtyLine_index">
-        <t t-set="calculatedTotalQty" t-value="calculatedTotalQty + (qtyLine.qty * 1 || 0)"/>
-    </t>
-    <div style="font-size:7pt; font-weight:700; line-height:1.3; margin-bottom: 0.6mm;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-            <span><t t-esc="props.orderlines ? props.orderlines.length : 0"/> Item <t t-esc="Math.floor(calculatedTotalQty)"/> Pcs</span>
+    <div t-attf-style="font-size:7pt; font-weight:{{ fwSum }}; line-height:1.3; margin-bottom:0.6mm;">
+        <div style="display:flex; justify-content:space-between;">
+            <span><t t-esc="props.totalItems or 0"/> Item <t t-esc="props.totalQty or 0"/> Pcs</span>
         </div>
     </div>
 
-    <!-- Loyalty Stats Section -->
-    <t t-if="props.data?.loyaltyStats and Array.isArray(props.data.loyaltyStats)">
-        <t t-foreach="props.data.loyaltyStats" t-as="_loyaltyStat" t-key="_loyaltyStat_index">
-            <t t-if="_loyaltyStat and _loyaltyStat.program and _loyaltyStat.program.portal_visible">
-                <div class='loyalty' style="margin-top: 1mm; font-size:7pt; font-weight:700;">
-                    <div style="text-align:center; border-top:1px solid black; margin: 1mm 0; padding-top: 1mm;">
-                        <div t-esc='_loyaltyStat.program.name' style="font-weight: 800;" />
+    <t t-if="props.data and props.data.loyaltyStats">
+        <t t-foreach="props.data.loyaltyStats" t-as="_ls" t-key="_ls_index">
+            <t t-if="_ls and _ls.program and _ls.program.portal_visible">
+                <div t-attf-style="margin-top:1mm; font-size:7pt; font-weight:{{ fwSum }};">
+                    <div style="text-align:center; border-top:1px solid black; margin:1mm 0; padding-top:1mm;">
+                        <div t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="_ls.program.name"/></div>
                     </div>
                     <div style="line-height:1.3;">
-                        <t t-if='_loyaltyStat.points and _loyaltyStat.points.won'>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-                                <span><t t-esc="_loyaltyStat.points.name or 'Points'"/> Won:</span>
-                                <span style="font-weight:800;" t-esc='Math.floor(_loyaltyStat.points.won)'/>
+                        <t t-if="_ls.points and _ls.points.won">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:0.4mm;">
+                                <span><t t-esc="_ls.points.name or 'Points'"/> Won:</span>
+                                <span t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="Math.floor(_ls.points.won)"/></span>
                             </div>
                         </t>
-                        <t t-if='_loyaltyStat.points and _loyaltyStat.points.spent'>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-                                <span><t t-esc="_loyaltyStat.points.name or 'Points'"/> Spent:</span>
-                                <span style="font-weight:800;" t-esc='Math.floor(_loyaltyStat.points.spent)'/>
+                        <t t-if="_ls.points and _ls.points.spent">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:0.4mm;">
+                                <span><t t-esc="_ls.points.name or 'Points'"/> Spent:</span>
+                                <span t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="Math.floor(_ls.points.spent)"/></span>
                             </div>
                         </t>
-                        <t t-if='_loyaltyStat.points and _loyaltyStat.points.balance'>
-                            <div style="display: flex; justify-content: space-between; margin-bottom: 0.4mm;">
-                                <span>Balance <t t-esc="_loyaltyStat.points.name or 'Points'"/>:</span>
-                                <span style="font-weight:800;" t-esc='Math.floor(_loyaltyStat.points.balance)'/>
+                        <t t-if="_ls.points and _ls.points.balance">
+                            <div style="display:flex; justify-content:space-between; margin-bottom:0.4mm;">
+                                <span>Balance <t t-esc="_ls.points.name or 'Points'"/>:</span>
+                                <span t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="Math.floor(_ls.points.balance)"/></span>
                             </div>
                         </t>
                     </div>
@@ -235,65 +229,52 @@
         </t>
     </t>
 
-    <!-- Customer Info -->
-    <t t-if="props.data?.partner">
-        <div style="margin-top: 1mm; font-size:7pt; font-weight:700; border-top:1px solid black; padding-top: 1mm; line-height:1.3;">
-            <div style="display: flex; justify-content: space-between;">
+    <t t-if="props.data and props.data.partner">
+        <div t-attf-style="margin-top:1mm; font-size:7pt; font-weight:{{ fwSum }}; border-top:1px solid black; padding-top:1mm; line-height:1.3;">
+            <div style="display:flex; justify-content:space-between;">
                 <span>Customer:</span>
-                <span style="font-weight:800;" t-esc='props.data.partner.name'/>
+                <span t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="props.data.partner.name"/></span>
             </div>
         </div>
     </t>
 
-    <!-- Gift Card Code Section -->
-    <t t-if="props.receipt?.gift_card_code or props.data?.gift_card_code">
-        <div style="margin-top: 1mm; font-size:7pt; font-weight:700; border-top:1px solid black; padding-top: 1mm; line-height:1.3;">
-            <div style="display: flex; justify-content: space-between;">
+    <t t-set="dpCode" t-value="(props.receipt and props.receipt.gift_card_code) or (props.data and props.data.gift_card_code) or ''"/>
+    <t t-if="dpCode">
+        <div t-attf-style="margin-top:1mm; font-size:7pt; font-weight:{{ fwSum }}; border-top:1px solid black; padding-top:1mm; line-height:1.3;">
+            <div style="display:flex; justify-content:space-between;">
                 <span>Kode Down Payment:</span>
-                <span style="font-weight:800;" t-esc='props.receipt?.gift_card_code || props.data?.gift_card_code'/>
+                <span t-attf-style="font-weight:{{ fwSum2 }};"><t t-esc="dpCode"/></span>
             </div>
-            <div style="margin-top: 0.6mm; font-size:6pt; font-weight:700; color:#000;">
+            <div style="margin-top:0.6mm; font-size:6pt; color:#000;">
                 Mohon berikan kode down payment kepada kasir untuk melakukan pelunasan!
             </div>
         </div>
     </t>
 
-    <!-- Footer - LEFT ALIGNED -->
-    <div style="font-size:6pt; font-weight:700; text-align:left; border-top:1px solid black; margin-top:1mm; padding-top:1mm; line-height:1.3;">
-        <t t-if='props.receipt?.footer_html'>
-            <t t-out='props.receipt.footer_html'/>
+    <div t-attf-style="font-size:6pt; font-weight:{{ fwSum }}; text-align:left; border-top:1px solid black; margin-top:1mm; padding-top:1mm; line-height:1.3;">
+        <t t-if="props.receipt and props.receipt.footer_html">
+            <t t-out="props.receipt.footer_html"/>
         </t>
-        <t t-elif='props.receipt?.footer'>
-            <t t-esc='props.receipt.footer'/>
+        <t t-elif="props.receipt and props.receipt.footer">
+            <t t-esc="props.receipt.footer"/>
         </t>
         <t t-else="">
-            <t t-if="props.pos.company?.street">
-                <div><t t-esc="props.pos.company.street"/></div>
-            </t>
-            <t t-if="props.pos.company?.street2">
-                <div><t t-esc="props.pos.company.street2"/></div>
-            </t>
-            <div>
-                <t t-if="props.pos.company?.city">
-                    <t t-esc="props.pos.company.city"/>
-                </t>
-                <t t-if="props.pos.company?.state_id">
-                    <t t-if="props.pos.company.city">, </t>
-                    <t t-esc="props.pos.company.state_id[1]"/>
-                </t>
-                <t t-if="props.pos.company?.zip">
-                    <t t-esc="props.pos.company.zip"/>
-                </t>
-            </div>
-            <t t-if="props.pos.company?.phone">
-                <div><t t-esc="props.pos.company.phone"/></div>
-            </t>
-            <t t-if="props.pos.company?.vat">
-                <div>NPWP : <t t-esc="props.pos.company.vat"/></div>
-            </t>
-            <div style="margin-top: 1mm;">
-                <div>Powered by Odoo</div>
-            </div>
+            <t t-set="ra" t-value="props.pos.receipt_address or {}"/>
+            <t t-set="f_street"   t-value="ra.receipt_street or ''"/>
+            <t t-set="f_city_zip" t-value="ra.receipt_city_zip or ''"/>
+            <t t-set="f_company"  t-value="ra.receipt_company_name or ''"/>
+            <t t-set="f_phone"    t-value="ra.receipt_phone or ''"/>
+            <t t-set="f_wa"       t-value="ra.receipt_wa or ''"/>
+            <t t-set="f_npwp"     t-value="ra.receipt_npwp or ''"/>
+
+            <t t-if="f_street">   <div><t t-esc="f_street"/></div></t>
+            <t t-if="f_city_zip"> <div><t t-esc="f_city_zip"/></div></t>
+            <t t-if="f_company">  <div><t t-esc="f_company"/></div></t>
+            <t t-if="f_phone">    <div>Tlp: <t t-esc="f_phone"/></div></t>
+            <t t-if="f_wa">       <div>Wa: <t t-esc="f_wa"/></div></t>
+            <t t-if="f_npwp">     <div>Npwp: <t t-esc="f_npwp"/></div></t>
+            <div style="margin-top:1mm;">Powered by Odoo</div>
         </t>
     </div>
+
 </div>

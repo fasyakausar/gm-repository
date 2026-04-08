@@ -29,6 +29,17 @@
                             </div>
                         </div>
                     </div>
+                    <div class="col-12 col-lg-6 o_setting_box" title="Send Store in POS Order.">
+                        <div class="o_setting_right_pane">
+                            <label for="is_store"/>
+                            <div class="text-muted">
+                                Send Store.
+                            </div>
+                            <div class="content-group mt16">
+                                <field name="is_store" colspan="4" nolabel="1"/>
+                            </div>
+                        </div>
+                    </div>
                     <div class="col-12 col-lg-6 o_setting_box" title="Integrated.">
                         <div class="o_setting_right_pane">
                             <label for="is_integrated"/>
@@ -51,18 +62,17 @@
                             </div>
                         </div>
                     </div>
-                </xpath>
-                <xpath expr="//field[@name='id_mc']" position="attributes">
-                    <attribute name="force_save">1</attribute>
-                    <attribute name="readonly">True</attribute>
-                </xpath>
-                <xpath expr="//field[@name='is_integrated']" position="attributes">
-                    <attribute name="force_save">1</attribute>
-                    <attribute name="readonly">True</attribute>
-                </xpath>
-                <xpath expr="//field[@name='is_updated']" position="attributes">
-                    <attribute name="force_save">1</attribute>
-                    <attribute name="readonly">True</attribute>
+                    <div class="col-12 col-lg-6 o_setting_box" title="Transaction ID.">
+                        <div class="o_setting_right_pane">
+                            <label for="vit_trxid"/>
+                            <div class="text-muted">
+                                Transaction ID.
+                            </div>
+                            <div class="content-group mt16">
+                                <field name="vit_trxid" colspan="4" nolabel="1"/>
+                            </div>
+                        </div>
+                    </div>
                 </xpath>
             </field>
         </record>

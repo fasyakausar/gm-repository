@@ -168,6 +168,7 @@ class PosSession(models.Model):
             'barcode.config',
             'hr.employee',
             'hr.employee.config.settings',
+            'loyalty.card'
         ]
         for model_name in model_checks:
             try:
@@ -180,35 +181,95 @@ class PosSession(models.Model):
         res += additional_models
         return res
 
+    def _loader_params_pos_order(self):
+        result = super()._loader_params_pos_order()
+        fields = result['search_params']['fields']
+        if 'account_move' not in fields:
+            fields.append('account_move')
+        return result
+    
+    def _get_pos_ui_pos_order(self, params):
+        orders = super()._get_pos_ui_pos_order(params)
+        
+        # DEBUG: cek field yang tersedia di order pertama
+        if orders:
+            sample = orders[0]
+            _logger.info(f"🔍 pos.order sample keys: {list(sample.keys())}")
+            _logger.info(f"🔍 account_move raw: {sample.get('account_move')}")
+            _logger.info(f"🔍 pos_reference: {sample.get('pos_reference')}")
+        
+        move_ids = [
+            o['account_move'][0] if isinstance(o.get('account_move'), (list, tuple)) else o.get('account_move')
+            for o in orders if o.get('account_move')
+        ]
+        move_ids = [m for m in move_ids if isinstance(m, int)]
+        
+        _logger.info(f"🔍 Total orders: {len(orders)}, orders with account_move: {len(move_ids)}")
+        
+        move_map = {}
+        if move_ids:
+            for mv in self.env['account.move'].sudo().browse(move_ids):
+                move_map[mv.id] = mv.name
+                _logger.info(f"✅ Move: {mv.id} → {mv.name}")
+        
+        for order in orders:
+            am = order.get('account_move')
+            mid = am[0] if isinstance(am, (list, tuple)) else am
+            order['account_move_name'] = move_map.get(mid, '') if isinstance(mid, int) else ''
+            if order['account_move_name']:
+                _logger.info(f"✅ Order {order.get('name')} → invoice: {order['account_move_name']}")
+            else:
+                _logger.warning(f"⚠️ Order {order.get('name')} → NO invoice (account_move={am})")
+        
+        return orders
+
     # ── Payment Method ───────────────────────────────────────────────────────
 
     def _loader_params_pos_payment_method(self):
         result = super()._loader_params_pos_payment_method()
-        if 'gm_is_card' not in result['search_params']['fields']:
-            result['search_params']['fields'].append('gm_is_card')
-            _logger.info("✅ Added gm_is_card to pos.payment.method loader")
-        if 'gm_is_dp' not in result['search_params']['fields']:
-            result['search_params']['fields'].append('gm_is_dp')
-            _logger.info("✅ Added gm_is_dp to pos.payment.method loader")
+        fields = result['search_params']['fields']
+        if 'gm_is_card' not in fields:
+            fields.append('gm_is_card')
+        if 'gm_is_dp' not in fields:
+            fields.append('gm_is_dp')
+        # Tambahkan journal_id agar tipe jurnal bisa diakses
+        if 'journal_id' not in fields:
+            fields.append('journal_id')
         return result
 
     def _get_pos_ui_pos_payment_method(self, params):
         payment_methods = super()._get_pos_ui_pos_payment_method(params)
-        card_methods = [pm for pm in payment_methods if pm.get('gm_is_card')]
-        non_card_methods = [pm for pm in payment_methods if not pm.get('gm_is_card')]
-        dp_methods = [pm for pm in payment_methods if pm.get('gm_is_dp')]
-        if dp_methods:
-            _logger.info("💰 DP Payment Methods (gm_is_dp=True):")
-            for pm in dp_methods:
-                _logger.info(f"   - {pm.get('name')} (ID: {pm.get('id')})")
-        _logger.info(f"📊 Payment Method Loading Summary:")
-        _logger.info(f"   Total payment methods: {len(payment_methods)}")
-        _logger.info(f"   Card methods (gm_is_card=True): {len(card_methods)}")
-        _logger.info(f"   Non-card methods: {len(non_card_methods)}")
-        if card_methods:
-            _logger.info("💳 Card payment methods:")
-            for pm in card_methods:
-                _logger.info(f"   - {pm.get('name')} (ID: {pm.get('id')}, gm_is_card: True)")
+        
+        # Ambil semua journal_id yang terkait
+        journal_ids = []
+        for pm in payment_methods:
+            jid = pm.get('journal_id')
+            if jid and isinstance(jid, (list, tuple)) and len(jid) > 0:
+                journal_ids.append(jid[0])
+        
+        # Load journal data (type, name)
+        journals = {}
+        if journal_ids:
+            for journal in self.env['account.journal'].sudo().browse(journal_ids):
+                journals[journal.id] = {'name': journal.name, 'type': journal.type}
+        
+        # Tambahkan journal_type ke setiap payment method
+        for pm in payment_methods:
+            jid = pm.get('journal_id')
+            if jid and isinstance(jid, (list, tuple)) and len(jid) > 0:
+                jid_val = jid[0]
+                if jid_val in journals:
+                    pm['journal_type'] = journals[jid_val]['type']
+                else:
+                    pm['journal_type'] = 'other'
+            else:
+                pm['journal_type'] = 'other'
+        
+        # Logging (opsional)
+        cash_methods = [pm for pm in payment_methods if pm.get('journal_type') == 'cash']
+        non_cash_methods = [pm for pm in payment_methods if pm.get('journal_type') != 'cash']
+        _logger.info(f"💵 Cash methods: {len(cash_methods)}, Non-cash methods: {len(non_cash_methods)}")
+        
         return payment_methods
 
     def _pos_ui_pos_payment_method(self, params):
@@ -335,46 +396,46 @@ class PosSession(models.Model):
     def _pos_ui_hr_employee_config_settings(self, params):
         return self._get_pos_ui_hr_employee_config_settings(params)
 
-    # ── Multiple Barcode ─────────────────────────────────────────────────────
+    # # ── Multiple Barcode ─────────────────────────────────────────────────────
 
-    def _loader_params_multiple_barcode(self):
-        return {
-            'search_params': {
-                'domain': [],
-                'fields': ['id', 'barcode', 'product_id'],
-            }
-        }
+    # def _loader_params_multiple_barcode(self):
+    #     return {
+    #         'search_params': {
+    #             'domain': [],
+    #             'fields': ['id', 'barcode', 'product_id'],
+    #         }
+    #     }
 
-    def _get_pos_ui_multiple_barcode(self, params):
-        try:
-            if 'multiple.barcode' not in self.env:
-                _logger.warning("⚠️ Model multiple.barcode not found")
-                return []
-            records = self.env['multiple.barcode'].search_read(
-                params['search_params']['domain'],
-                params['search_params']['fields'],
-                limit=5000
-            )
-            # Bulk-fetch product display_name
-            product_ids = [r['product_id'] for r in records if isinstance(r.get('product_id'), int)]
-            product_map = {}
-            if product_ids:
-                for p in self.env['product.product'].browse(product_ids):
-                    product_map[p.id] = p.display_name
-            for rec in records:
-                val = rec.get('product_id')
-                if isinstance(val, int):
-                    rec['product_id'] = [val, product_map.get(val, '')] if val in product_map else False
-                elif isinstance(val, (list, tuple)) and len(val) >= 2:
-                    rec['product_id'] = [int(val[0]), str(val[1])]
-            _logger.info(f"✅ Loaded {len(records)} multiple.barcode records")
-            return records
-        except Exception as e:
-            _logger.error(f"❌ Error loading multiple.barcode: {e}")
-            return []
+    # def _get_pos_ui_multiple_barcode(self, params):
+    #     try:
+    #         if 'multiple.barcode' not in self.env:
+    #             _logger.warning("⚠️ Model multiple.barcode not found")
+    #             return []
+    #         records = self.env['multiple.barcode'].search_read(
+    #             params['search_params']['domain'],
+    #             params['search_params']['fields'],
+    #             limit=5000
+    #         )
+    #         # Bulk-fetch product display_name
+    #         product_ids = [r['product_id'] for r in records if isinstance(r.get('product_id'), int)]
+    #         product_map = {}
+    #         if product_ids:
+    #             for p in self.env['product.product'].browse(product_ids):
+    #                 product_map[p.id] = p.display_name
+    #         for rec in records:
+    #             val = rec.get('product_id')
+    #             if isinstance(val, int):
+    #                 rec['product_id'] = [val, product_map.get(val, '')] if val in product_map else False
+    #             elif isinstance(val, (list, tuple)) and len(val) >= 2:
+    #                 rec['product_id'] = [int(val[0]), str(val[1])]
+    #         _logger.info(f"✅ Loaded {len(records)} multiple.barcode records")
+    #         return records
+    #     except Exception as e:
+    #         _logger.error(f"❌ Error loading multiple.barcode: {e}")
+    #         return []
 
-    def _pos_ui_multiple_barcode(self, params):
-        return self._get_pos_ui_multiple_barcode(params)
+    # def _pos_ui_multiple_barcode(self, params):
+    #     return self._get_pos_ui_multiple_barcode(params)
 
     # ── Barcode Config ───────────────────────────────────────────────────────
 
@@ -384,7 +445,7 @@ class PosSession(models.Model):
                 'domain': [],
                 'fields': [
                     'digit_awal', 'digit_akhir', 'prefix_timbangan',
-                    'panjang_barcode', 'multiple_barcode_activate',
+                    'panjang_barcode',
                 ],
             }
         }
@@ -410,47 +471,47 @@ class PosSession(models.Model):
 
     # ── Cashier Log ──────────────────────────────────────────────────────────
 
-    def _loader_params_pos_cashier_log(self):
-        return {
-            'search_params': {
-                'domain': [('session_id', '=', self.id)],
-                'fields': ['id', 'session_id', 'employee_id', 'state', 'timestamp'],
-            }
-        }
+    # def _loader_params_pos_cashier_log(self):
+    #     return {
+    #         'search_params': {
+    #             'domain': [('session_id', '=', self.id)],
+    #             'fields': ['id', 'session_id', 'employee_id', 'state', 'timestamp'],
+    #         }
+    #     }
 
-    def _get_pos_ui_pos_cashier_log(self, params):
-        try:
-            if 'pos.cashier.log' not in self.env:
-                _logger.warning("⚠️ Model pos.cashier.log not found")
-                return []
-            records = self.env['pos.cashier.log'].search_read(
-                params['search_params'].get('domain', []),
-                params['search_params']['fields']
-            )
-            # Bulk-fetch employee & session names
-            emp_ids = [r['employee_id'] for r in records if isinstance(r.get('employee_id'), int)]
-            sess_ids = [r['session_id'] for r in records if isinstance(r.get('session_id'), int)]
-            emp_map = {e.id: e.name for e in self.env['hr.employee'].browse(emp_ids)} if emp_ids else {}
-            sess_map = {s.id: s.name for s in self.env['pos.session'].browse(sess_ids)} if sess_ids else {}
-            for rec in records:
-                eid = rec.get('employee_id')
-                if isinstance(eid, int):
-                    rec['employee_id'] = [eid, emp_map.get(eid, '')] if eid in emp_map else False
-                elif isinstance(eid, (list, tuple)) and len(eid) >= 2:
-                    rec['employee_id'] = [int(eid[0]), str(eid[1])]
-                sid = rec.get('session_id')
-                if isinstance(sid, int):
-                    rec['session_id'] = [sid, sess_map.get(sid, '')] if sid in sess_map else False
-                elif isinstance(sid, (list, tuple)) and len(sid) >= 2:
-                    rec['session_id'] = [int(sid[0]), str(sid[1])]
-            _logger.info(f"✅ Loaded {len(records)} pos.cashier.log records")
-            return records
-        except Exception as e:
-            _logger.error(f"❌ Error loading pos.cashier.log: {e}")
-            return []
+    # def _get_pos_ui_pos_cashier_log(self, params):
+    #     try:
+    #         if 'pos.cashier.log' not in self.env:
+    #             _logger.warning("⚠️ Model pos.cashier.log not found")
+    #             return []
+    #         records = self.env['pos.cashier.log'].search_read(
+    #             params['search_params'].get('domain', []),
+    #             params['search_params']['fields']
+    #         )
+    #         # Bulk-fetch employee & session names
+    #         emp_ids = [r['employee_id'] for r in records if isinstance(r.get('employee_id'), int)]
+    #         sess_ids = [r['session_id'] for r in records if isinstance(r.get('session_id'), int)]
+    #         emp_map = {e.id: e.name for e in self.env['hr.employee'].browse(emp_ids)} if emp_ids else {}
+    #         sess_map = {s.id: s.name for s in self.env['pos.session'].browse(sess_ids)} if sess_ids else {}
+    #         for rec in records:
+    #             eid = rec.get('employee_id')
+    #             if isinstance(eid, int):
+    #                 rec['employee_id'] = [eid, emp_map.get(eid, '')] if eid in emp_map else False
+    #             elif isinstance(eid, (list, tuple)) and len(eid) >= 2:
+    #                 rec['employee_id'] = [int(eid[0]), str(eid[1])]
+    #             sid = rec.get('session_id')
+    #             if isinstance(sid, int):
+    #                 rec['session_id'] = [sid, sess_map.get(sid, '')] if sid in sess_map else False
+    #             elif isinstance(sid, (list, tuple)) and len(sid) >= 2:
+    #                 rec['session_id'] = [int(sid[0]), str(sid[1])]
+    #         _logger.info(f"✅ Loaded {len(records)} pos.cashier.log records")
+    #         return records
+    #     except Exception as e:
+    #         _logger.error(f"❌ Error loading pos.cashier.log: {e}")
+    #         return []
 
-    def _pos_ui_pos_cashier_log(self, params):
-        return self._get_pos_ui_pos_cashier_log(params)
+    # def _pos_ui_pos_cashier_log(self, params):
+    #     return self._get_pos_ui_pos_cashier_log(params)
 
     # ── Config Settings ──────────────────────────────────────────────────────
 
@@ -459,76 +520,66 @@ class PosSession(models.Model):
 
     def _get_pos_ui_res_config_settings(self, params):
         try:
-            config = self.env['ir.config_parameter'].sudo()
+            cfg = self.config_id
 
-            manager_id = config.get_param('pos.manager_id')
-            manager = None
-            if manager_id and str(manager_id).isdigit():
-                try:
-                    manager = self.env['hr.employee'].browse(int(manager_id))
-                    if not manager.exists():
-                        manager = None
-                except Exception:
-                    manager = None
+            # ✅ Debug — log semua nilai dari pos.config
+            _logger.info(f"🔍 POS Config ID: {cfg.id}, Name: {cfg.name}")
+            _logger.info(f"   manager_validation     = {cfg.manager_validation}")
+            _logger.info(f"   enable_auto_rounding   = {cfg.enable_auto_rounding}")
+            _logger.info(f"   rounding_value         = {cfg.rounding_value}")
+            _logger.info(f"   rounding_product_id    = {cfg.rounding_product_id}")
+            _logger.info(f"   validate_discount      = {cfg.validate_discount}")
+            _logger.info(f"   validate_payment       = {cfg.validate_payment}")
+            _logger.info(f"   validate_price_change  = {cfg.validate_price_change}")
+            _logger.info(f"   validate_refund        = {cfg.validate_refund}")
+            _logger.info(f"   manager_id             = {cfg.manager_id}")
 
-            rounding_product_id = config.get_param('pos.rounding_product_id')
-            rounding_product = None
-            if rounding_product_id and str(rounding_product_id).isdigit():
-                try:
-                    rounding_product = self.env['product.product'].browse(int(rounding_product_id))
-                    if not rounding_product.exists():
-                        rounding_product = None
-                except Exception:
-                    rounding_product = None
+            # ✅ AMAN — gunakan exists() untuk Many2one
+            manager = cfg.manager_id if cfg.manager_id and cfg.manager_id.exists() else None
+            rounding_product = cfg.rounding_product_id if cfg.rounding_product_id and cfg.rounding_product_id.exists() else None
 
-            total_digits = config.get_param('reward_point_total_digits', '16')
-            decimal_digits = config.get_param('reward_point_decimal_digits', '4')
+            ir_config = self.env['ir.config_parameter'].sudo()
+            total_digits_raw = ir_config.get_param('reward_point_total_digits', '16')
+            decimal_digits_raw = ir_config.get_param('reward_point_decimal_digits', '4')
 
             result = {
-                'manager_validation': config.get_param('pos.manager_validation', 'False') == 'True',
-                'validate_discount_amount': config.get_param('pos.validate_discount_amount', 'False') == 'True',
-                'validate_end_shift': config.get_param('pos.validate_end_shift', 'False') == 'True',
-                'validate_closing_pos': config.get_param('pos.validate_closing_pos', 'False') == 'True',
-                'validate_order_line_deletion': config.get_param('pos.validate_order_line_deletion', 'False') == 'True',
-                'validate_discount': config.get_param('pos.validate_discount', 'False') == 'True',
-                'validate_price_change': config.get_param('pos.validate_price_change', 'False') == 'True',
-                'validate_order_deletion': config.get_param('pos.validate_order_deletion', 'False') == 'True',
-                'validate_add_remove_quantity': config.get_param('pos.validate_add_remove_quantity', 'False') == 'True',
-                'validate_payment': config.get_param('pos.validate_payment', 'False') == 'True',
-                'validate_refund': config.get_param('pos.validate_refund', 'False') == 'True',
-                'validate_close_session': config.get_param('pos.validate_close_session', 'False') == 'True',
-                'validate_void_sales': config.get_param('pos.validate_void_sales', 'False') == 'True',
-                'validate_member_schedule': config.get_param('pos.validate_member_schedule', 'False') == 'True',
-                'validate_cash_drawer': config.get_param('pos.validate_cash_drawer', 'False') == 'True',
-                'validate_reprint_receipt': config.get_param('pos.validate_reprint_receipt', 'False') == 'True',
-                'validate_discount_button': config.get_param('pos.validate_discount_button', 'False') == 'True',
-                'allow_multiple_global_discounts': config.get_param('pos.allow_multiple_global_discounts', 'False') == 'True',
-                'one_time_password': config.get_param('pos.one_time_password', 'False') == 'True',
-                'multiple_barcode_activate': config.get_param('pos.multiple_barcode_activate', 'False') == 'True',
-                'validate_pricelist': config.get_param('pos.validate_pricelist', 'False') == 'True',
-                'reward_point_total_digits': int(total_digits) if str(total_digits).isdigit() else 16,
-                'reward_point_decimal_digits': int(decimal_digits) if str(decimal_digits).isdigit() else 4,
+                'manager_validation': cfg.manager_validation or False,
+                'validate_discount_amount': cfg.validate_discount_amount or False,
+                'validate_end_shift': cfg.validate_end_shift or False,
+                'validate_closing_pos': cfg.validate_closing_pos or False,
+                'validate_order_line_deletion': cfg.validate_order_line_deletion or False,
+                'validate_discount': cfg.validate_discount or False,
+                'validate_price_change': cfg.validate_price_change or False,
+                'validate_order_deletion': cfg.validate_order_deletion or False,
+                'validate_add_remove_quantity': cfg.validate_add_remove_quantity or False,
+                'validate_payment': cfg.validate_payment or False,
+                'validate_refund': cfg.validate_refund or False,
+                'validate_close_session': cfg.validate_close_session or False,
+                'validate_void_sales': cfg.validate_void_sales or False,
+                'validate_member_schedule': cfg.validate_member_schedule or False,
+                'validate_cash_drawer': cfg.validate_cash_drawer or False,
+                'validate_reprint_receipt': cfg.validate_reprint_receipt or False,
+                'validate_reprint_invoice': cfg.validate_reprint_invoice or False,
+                'validate_discount_button': cfg.validate_discount_button or False,
+                'one_time_password': cfg.one_time_password or False,
                 'manager_pin': manager.pin if manager else '',
                 'manager_name': manager.name if manager else '',
-                'enable_auto_rounding': config.get_param('pos.enable_auto_rounding', 'False') == 'True',
-                'rounding_value': int(config.get_param('pos.rounding_value', '100')) if config.get_param('pos.rounding_value', '100').isdigit() else 100,
+                'enable_auto_rounding': cfg.enable_auto_rounding or False,
+                'rounding_value': cfg.rounding_value or 100,
                 'rounding_product_id': {
-                    'id': rounding_product.id if rounding_product else None,
-                    'name': rounding_product.name if rounding_product else None,
+                    'id': rounding_product.id,
+                    'name': rounding_product.name,
                 } if rounding_product else None,
+                'reward_point_total_digits': int(total_digits_raw) if str(total_digits_raw).isdigit() else 16,
+                'reward_point_decimal_digits': int(decimal_digits_raw) if str(decimal_digits_raw).isdigit() else 4,
             }
 
-            _logger.info("✅ Loaded res.config.settings with rounding config")
-            if result['enable_auto_rounding']:
-                _logger.info("   🔄 Auto Rounding: ENABLED")
-                _logger.info(f"   💯 Rounding Value: {result['rounding_value']}")
-                _logger.info(f"   📦 Rounding Product: {result['rounding_product_id']['name'] if result['rounding_product_id'] else 'NOT SET'}")
-            else:
-                _logger.info("   🔄 Auto Rounding: DISABLED")
-
+            _logger.info(f"✅ Loaded res.config.settings for POS '{cfg.name}'")
             return [result]
+
         except Exception as e:
             _logger.error(f"❌ Error loading res.config.settings: {e}")
+            _logger.error(traceback.format_exc())
             return [{
                 'manager_validation': False,
                 'validate_discount_amount': False,
@@ -546,18 +597,16 @@ class PosSession(models.Model):
                 'validate_member_schedule': False,
                 'validate_cash_drawer': False,
                 'validate_reprint_receipt': False,
+                'validate_reprint_invoice': False,
                 'validate_discount_button': False,
-                'allow_multiple_global_discounts': False,
                 'one_time_password': False,
-                'multiple_barcode_activate': False,
-                'validate_pricelist': False,
-                'reward_point_total_digits': 16,
-                'reward_point_decimal_digits': 4,
                 'manager_pin': '',
                 'manager_name': '',
                 'enable_auto_rounding': False,
                 'rounding_value': 100,
                 'rounding_product_id': None,
+                'reward_point_total_digits': 16,
+                'reward_point_decimal_digits': 4,
             }]
 
     def _pos_ui_res_config_settings(self, params):
@@ -603,11 +652,43 @@ class PosSession(models.Model):
 
     def _pos_ui_product_product(self, params):
         return self._get_pos_ui_product_product(params)
+    
+    def _loader_params_loyalty_card(self):
+        return {
+            'search_params': {
+                'domain': [],
+                'fields': ['id', 'code', 'points', 'partner_id', 'program_id'],
+            }
+        }
+
+    def _get_pos_ui_loyalty_card(self, params):
+        cards = self.env['loyalty.card'].sudo().search_read(**params['search_params'])
+        _logger.info(f"🎁 Loyalty cards: {len(cards)}")
+        partner_ids = []
+        for card in cards:
+            _logger.info(f"   ID {card['id']}: points={card.get('points')}")
+            pid = card.get('partner_id')
+            if pid:
+                if isinstance(pid, (list, tuple)):
+                    partner_ids.append(pid[0])  # extract ID
+                else:
+                    partner_ids.append(pid)
+        partner_map = {p.id: p.name for p in self.env['res.partner'].sudo().browse(partner_ids)}
+        for card in cards:
+            pid = card.get('partner_id')
+            if pid:
+                if isinstance(pid, (list, tuple)):
+                    pid_val = pid[0]
+                else:
+                    pid_val = pid
+                card['partner_id'] = [pid_val, partner_map.get(pid_val, '')]
+        return cards
 
     # ── Partner ──────────────────────────────────────────────────────────────
 
     def _loader_params_res_partner(self):
-        current_company_id = self.env.company.id
+        # ✅ Ganti self.env.company.id → self.company_id.id
+        current_company_id = self.company_id.id
         base_domain = [
             ('active', '=', True),
             ('gm_bp_type', '=', 'customer'),
@@ -647,7 +728,8 @@ class PosSession(models.Model):
 
     def _get_pos_ui_res_partner(self, params):
         try:
-            current_company_id = self.env.company.id
+            # ✅ Ganti self.env.company.id → self.company_id.id
+            current_company_id = self.company_id.id
 
             partners = self.env['res.partner'].sudo().search_read(
                 params['search_params'].get('domain', []),
@@ -726,6 +808,7 @@ class PosSession(models.Model):
             country_map = {r.id: r.name for r in self.env['res.country'].sudo().browse(list(country_ids))} if country_ids else {}
             fiscal_map = {r.id: r.name for r in self.env['account.fiscal.position'].sudo().browse(list(fiscal_ids))} if fiscal_ids else {}
 
+            # ✅ Kunci perbaikan: filter pricelist berdasarkan company_id session
             valid_pricelist_ids = set(
                 self.env['product.pricelist'].sudo().search([
                     ('company_id', 'in', [False, current_company_id])

@@ -1,6 +1,17 @@
 <odoo>
   <data>
 
+  <record id="view_pos_order_tree_inherit" model="ir.ui.view">
+      <field name="name">pos.order.tree.inherit</field>
+      <field name="model">pos.order</field>
+      <field name="inherit_id" ref="point_of_sale.view_pos_order_tree"/>
+      <field name="arch" type="xml">
+          <field name="name" position="after">
+              <field name="invoice_number_pos" string="Invoice No"/>
+          </field>
+      </field>
+  </record>
+
     <!-- form view-->
     <record model="ir.ui.view" id="view_pos_order_form">
       <field name="name">pos.order.form</field>

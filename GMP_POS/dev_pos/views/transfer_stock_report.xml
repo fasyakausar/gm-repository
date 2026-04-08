@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<odoo>
+    <template id="report_delivery_document_ts_location"
+              inherit_id="stock.report_delivery_document">
+
+        <!-- Source & Destination Location — sejajar dengan Shipping Date -->
+        <xpath expr="//div[@name='div_sched_date']" position="after">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <div class="col-auto col-3 mw-100 mb-2" name="div_source_loc">
+                    <strong>Source Location:</strong>
+                    <p class="m-0" t-field="o.location_id"/>
+                </div>
+                <div class="col-auto col-3 mw-100 mb-2" name="div_dest_loc">
+                    <strong>Destination Location:</strong>
+                    <p class="m-0" t-field="o.location_dest_id"/>
+                </div>
+            </t>
+        </xpath>
+
+        <!-- Header kolom From/To – tabel state != done -->
+        <xpath expr="//table[@name='stock_move_table']/thead/tr/th[@name='th_sm_product']"
+               position="before">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <th name="th_sm_from_loc"><strong>From</strong></th>
+                <th name="th_sm_to_loc"><strong>To</strong></th>
+            </t>
+        </xpath>
+
+        <!-- Data kolom From/To – tabel state != done (per stock.move) -->
+        <xpath expr="//table[@name='stock_move_table']/tbody/tr/td[1]"
+            position="before">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <td><span t-field="move.location_id"/></td>
+                <td>
+                    <t t-if="o.picking_type_id.name == 'TSOUT'">
+                        <span t-esc="o._get_ts_transit_location().display_name"/>
+                    </t>
+                    <t t-else="">
+                        <span t-field="move.location_dest_id"/>
+                    </t>
+                </td>
+            </t>
+        </xpath>
+
+        <!-- Header kolom From/To – tabel state == done -->
+        <xpath expr="//table[@name='stock_move_line_table']/thead/tr/th[@name='th_sml_product']"
+               position="before">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <th name="th_sml_from_loc"><strong>From</strong></th>
+                <th name="th_sml_to_loc"><strong>To</strong></th>
+            </t>
+        </xpath>
+
+    </template>
+
+    <!-- Sub-template: has_serial_move_line (done + serial number) -->
+    <template id="stock_report_delivery_has_serial_move_line_ts"
+              inherit_id="stock.stock_report_delivery_has_serial_move_line">
+        <xpath expr="//td[1]" position="before">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <td><span t-field="move_line.location_id"/></td>
+                <td><span t-field="move_line.location_dest_id"/></td>
+            </t>
+        </xpath>
+    </template>
+
+    <!-- Sub-template: aggregated_move_lines (done + tanpa serial number) -->
+    <template id="stock_report_delivery_aggregated_move_lines_ts"
+              inherit_id="stock.stock_report_delivery_aggregated_move_lines">
+        <xpath expr="//tr/td[1]" position="before">
+            <t t-if="o.picking_type_id.name in ('TSOUT', 'TSIN')">
+                <td><span t-field="o.location_id"/></td>
+                <td><span t-field="o.location_dest_id"/></td>
+            </t>
+        </xpath>
+    </template>
+
+</odoo>

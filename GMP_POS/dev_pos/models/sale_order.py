@@ -82,6 +82,16 @@ class SaleOrder(models.Model):
         string='Customer Company',
         readonly=False,
     )
+    is_cashier = fields.Boolean(
+        string='Is Cashier',
+        compute='_compute_is_cashier',
+    )
+
+    @api.depends_context('uid')
+    def _compute_is_cashier(self):
+        is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
+        for order in self:
+            order.is_cashier = is_cashier
 
     # ── helper ────────────────────────────────────────────
 
@@ -200,11 +210,30 @@ class SaleOrder(models.Model):
                     partner.gm_bp_tax.name,
                 ))
 
+    # ── pricelist dari partner ────────────────────────────
+
+    def _get_partner_pricelist(self, partner):
+        """Ambil pricelist dari partner (field property_product_pricelist)"""
+        if partner:
+            return partner.property_product_pricelist
+        return False
+
     # ── onchange ──────────────────────────────────────────
 
     @api.onchange('partner_id')
     def _onchange_partner_customer_info(self):
         self.customer_info = self.partner_id.company_id if self.partner_id else False
+
+    @api.onchange('partner_id')
+    def _onchange_partner_pricelist(self):
+        """Saat partner berubah, set pricelist dari partner (hanya jika belum diubah manual)"""
+        if self.partner_id:
+            pricelist = self._get_partner_pricelist(self.partner_id)
+            if pricelist:
+                self.pricelist_id = pricelist
+            else:
+                # Fallback ke pricelist default perusahaan
+                self.pricelist_id = self.env.company.default_pricelist_id
 
     @api.onchange('partner_id', 'warehouse_id')
     def _onchange_apply_mapping_tax(self):
@@ -253,6 +282,19 @@ class SaleOrder(models.Model):
                 ),
             }}
 
+    @api.onchange('pricelist_id')
+    def _onchange_pricelist_id_check_cashier(self):
+        """Kasir: jika mencoba ubah pricelist, kembalikan ke nilai lama dan beri warning"""
+        if self.env.user.has_group('dev_pos.group_sale_cashier') and self.pricelist_id:
+            if self._origin and self._origin.pricelist_id != self.pricelist_id:
+                return {
+                    'warning': {
+                        'title': _('Tidak Diizinkan'),
+                        'message': _('Anda tidak memiliki izin mengubah Pricelist.'),
+                    },
+                    'value': {'pricelist_id': self._origin.pricelist_id.id}
+                }
+
     # ── compute & crud ────────────────────────────────────
 
     @api.depends('user_id', 'company_id')
@@ -275,12 +317,19 @@ class SaleOrder(models.Model):
     @api.model
     def default_get(self, fields_list):
         res = super().default_get(fields_list)
+        # Set pricelist dari partner jika ada default_partner_id di context
+        if 'pricelist_id' in fields_list:
+            partner_id = self.env.context.get('default_partner_id')
+            if partner_id:
+                partner = self.env['res.partner'].browse(partner_id)
+                pricelist = self._get_partner_pricelist(partner)
+                if pricelist:
+                    res['pricelist_id'] = pricelist.id
+        # Set warehouse dari allowed user
         allowed = self.env.user.sudo().allowed_warehouse_ids.filtered(
             lambda w: w.company_id.id == self.env.company.id
         )
-        if not allowed:
-            return res
-        if len(allowed) == 1:
+        if allowed and len(allowed) == 1 and 'warehouse_id' in fields_list:
             res['warehouse_id'] = allowed.id
         return res
 
@@ -324,12 +373,35 @@ class SaleOrder(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        allowed = self.env.user.sudo().allowed_warehouse_ids.filtered(
-            lambda w: w.company_id.id == self.env.company.id
-        )
-        if allowed:
-            allowed_ids = set(allowed.ids)
-            for vals in vals_list:
+        user_is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
+        processed_vals_list = []
+
+        for vals in vals_list:
+            partner_id = vals.get('partner_id')
+            if partner_id:
+                partner = self.env['res.partner'].browse(partner_id)
+                expected_pricelist = self._get_partner_pricelist(partner)
+
+                if user_is_cashier:
+                    # Kasir tidak boleh menentukan pricelist sendiri
+                    if 'pricelist_id' in vals:
+                        if expected_pricelist and vals['pricelist_id'] != expected_pricelist.id:
+                            raise UserError(_("Anda tidak diizinkan memilih Pricelist. Pricelist akan otomatis dari customer."))
+                        # Jika sama, biarkan saja (boleh)
+                    # Jika belum ada pricelist di vals, set dari partner
+                    if expected_pricelist and 'pricelist_id' not in vals:
+                        vals['pricelist_id'] = expected_pricelist.id
+                else:
+                    # Non-kasir: jika pricelist tidak disediakan, set dari partner (opsional)
+                    if expected_pricelist and 'pricelist_id' not in vals:
+                        vals['pricelist_id'] = expected_pricelist.id
+
+            # Validasi warehouse allowed
+            allowed = self.env.user.sudo().allowed_warehouse_ids.filtered(
+                lambda w: w.company_id.id == self.env.company.id
+            )
+            if allowed:
+                allowed_ids = set(allowed.ids)
                 wh_id = vals.get('warehouse_id')
                 if wh_id and wh_id not in allowed_ids:
                     raise UserError(_(
@@ -337,16 +409,23 @@ class SaleOrder(models.Model):
                         "Silakan pilih warehouse yang diizinkan untuk akun Anda."
                     ))
 
-        for vals in vals_list:
+            # Validasi line tax vs mapping
             self._check_line_tax_vs_mapping(
                 partner_id=vals.get('partner_id'),
                 warehouse_id=vals.get('warehouse_id'),
                 order_lines_vals=vals.get('order_line', []),
             )
+            processed_vals_list.append(vals)
 
-        return super().create(vals_list)
+        return super().create(processed_vals_list)
 
     def write(self, vals):
+        user_is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
+        if user_is_cashier and 'pricelist_id' in vals:
+            for order in self:
+                if order.pricelist_id.id != vals['pricelist_id']:
+                    raise UserError(_("Anda tidak memiliki izin mengubah Pricelist."))
+
         locked_map = self.env.context.get('_locked_warehouse_map')
         if locked_map and 'warehouse_id' in vals:
             for order in self:

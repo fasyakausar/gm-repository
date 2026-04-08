@@ -12,6 +12,14 @@ class LoyaltyProgramInherit(models.Model):
     schedule_ids = fields.One2many('loyalty.program.schedule','program_id',string='Schedules')
     member_ids = fields.One2many('loyalty.member','member_program_id',string='Members')
     vit_konversi_poin = fields.Float(string="Konversi untuk Penukaran Point 1 Point =")
+    is_admin_access = fields.Boolean(
+        compute='_compute_is_admin_access',
+    )
+
+    def _compute_is_admin_access(self):
+        is_admin = self.env.user.has_group('dev_pos.group_admin_access')
+        for rec in self:
+            rec.is_admin_access = is_admin
 
     def write(self, vals):
         # Only set is_updated to True if it hasn't been explicitly set to False in vals

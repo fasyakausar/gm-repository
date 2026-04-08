@@ -22,6 +22,32 @@ class StockPicking(models.Model):
         ('ts_in', 'TSIN'),
     ], string="Transfer Type", compute="_compute_gm_type_transfer", store=True, tracking=True)
 
+    def _get_ts_transit_location(self):
+        """
+        Ambil location_transit dari stock.warehouse berdasarkan target_location.
+        Dipakai di QWeb report untuk picking type TSOUT.
+        """
+        self.ensure_one()
+        if not self.target_location:
+            return self.env['stock.location']
+
+        Warehouse = self.env['stock.warehouse']
+
+        # Strategi 1: lot_stock_id tepat sama dengan target_location
+        warehouse = Warehouse.search(
+            [('lot_stock_id', '=', self.target_location.id)],
+            limit=1
+        )
+
+        # Strategi 2 (fallback): target_location adalah child dari view_location_id
+        if not warehouse:
+            warehouse = Warehouse.search(
+                [('view_location_id', 'child_of', self.target_location.id)],
+                limit=1
+            )
+
+        return warehouse.location_transit if warehouse else self.env['stock.location']
+
     @api.depends('location_id', 'location_dest_id', 'location_id.usage', 'location_dest_id.usage')
     def _compute_gm_type_transfer(self):
         """

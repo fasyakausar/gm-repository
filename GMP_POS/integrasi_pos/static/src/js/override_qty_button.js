@@ -12,8 +12,12 @@ import { InputNumberPopUpQty } from "./input_number_popup_qty";
 // ============================================================
 // Helper
 // ============================================================
-function isSelectedLineDP(pos) {
+function isSelectedLineFixedPrice(pos) {
     return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_fixed_price === true;
+}
+
+function isSelectedLineDP(pos) {
+    return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_dp === true;
 }
 
 function removeSelectedDPLine(pos) {
@@ -46,6 +50,26 @@ patch(Orderline.prototype, {
 // ============================================================
 patch(SetPricelistButton.prototype, {
     async click() {
+        // ── Baca group dari session Odoo yang login ───────────────
+        const userGroups = odoo.session_info?.user_context?.allowed_company_ids || [];
+        
+        // Cara lebih akurat: fetch via rpc
+        const result = await this.env.services.orm.call(
+            "res.users",
+            "has_group",
+            ["dev_pos.group_sale_cashier"],
+        );
+
+        console.log("has_group RPC result:", result);
+
+        if (result) {
+            await this.popup.add(ErrorPopup, {
+                title: _t("Akses Ditolak"),
+                body: _t("Anda tidak memiliki izin untuk mengubah pricelist."),
+            });
+            return;
+        }
+
         const config = this.pos.config || {};
         if (config.manager_validation && config.validate_pricelist) {
             const { confirmed } = await this.popup.add(CustomNumpadPopUp, {
@@ -54,6 +78,7 @@ patch(SetPricelistButton.prototype, {
             });
             if (!confirmed) return;
         }
+
         return super.click(...arguments);
     },
 });
@@ -116,27 +141,40 @@ patch(ProductScreen.prototype, {
     // ============================================================
     // updateSelectedOrderline: titik intercept utama
     // ============================================================
+    // Di dalam patch(ProductScreen.prototype, { ... })
+
     async updateSelectedOrderline({ buffer, key }) {
         console.log("🔴 updateSelectedOrderline CALLED", { buffer, key, mode: this.pos.numpadMode });
 
         const mode = this.pos.numpadMode;
         const selectedLine = this.currentOrder?.get_selected_orderline();
 
-        // ── Guard: DP line ────────────────────────────────────────
+        // ── Guard: DP line tidak bisa dihapus ────────────────────
+        if (isSelectedLineDP(this.pos)) {
+            const isDeleteAction =
+                (key === "Backspace" && (buffer === null || buffer === "")) ||
+                key === "Delete";
+            if (isDeleteAction) {
+                this.numberBuffer.reset();
+                this.popup.add(ErrorPopup, {
+                    title: _t("Tidak Dapat Menghapus"),
+                    body: _t("Item Down Payment tidak dapat dihapus."),
+                });
+                return;
+            }
+        }
+
+        // ── Guard: DP line quantity tidak bisa diubah (FIX) ──────
         if (mode === "quantity" && isSelectedLineDP(this.pos)) {
             this.numberBuffer.reset();
-            if (key === "Backspace") {
-                removeSelectedDPLine(this.pos);
-            } else {
-                this.popup.add(ErrorPopup, {
-                    title: _t("Tidak Dapat Mengubah Quantity"),
-                    body: _t("Quantity item Down Payment tidak dapat diubah."),
-                });
-            }
+            this.popup.add(ErrorPopup, {
+                title: _t("Tidak Dapat Mengubah Quantity"),
+                body: _t("Quantity item Down Payment tidak dapat diubah."),
+            });
             return;
         }
 
-        // ── Guard: Backspace / delete line ───────────────────────
+        // ── Guard: Backspace / delete line (tetap) ──────────────
         if (key === "Backspace" && (buffer === null || buffer === "")) {
             const isValidated = await this.validateManagerAccess("delete");
             if (!isValidated) {
@@ -150,10 +188,15 @@ patch(ProductScreen.prototype, {
         if (["quantity", "discount", "price"].includes(mode) && key !== "Backspace") {
             const product = this.getProductFromSelectedLine();
 
-            // Skip PIN validation jika product adalah Down Payment
-            const isDPProduct = mode === "price" && product?.gm_is_fixed_price === true;
-
-            if (!isDPProduct) {
+            // Fixed Price: hanya untuk mode price (bukan quantity)
+            if (mode === "price" && product?.gm_is_fixed_price === true) {
+                const isValidated = await this.validateManagerAccess("price", product);
+                if (!isValidated) {
+                    this.numberBuffer.reset();
+                    return;
+                }
+            } else if (mode !== "price") {
+                // mode quantity atau discount → validasi manager biasa
                 const isValidated = await this.validateManagerAccess(mode, product);
                 if (!isValidated) {
                     this.numberBuffer.reset();
@@ -210,17 +253,13 @@ patch(ProductScreen.prototype, {
         return super.updateSelectedOrderline({ buffer, key });
     },
 
-    // ============================================================
-    // _setValue: safety net untuk DP line
-    // ============================================================
     _setValue(val) {
         const { numpadMode } = this.pos;
-
+        // Blokir input quantity untuk DP (FIX)
         if (numpadMode === "quantity" && isSelectedLineDP(this.pos)) {
             this.numberBuffer.reset();
             return;
         }
-
         return super._setValue(val);
     },
 });

@@ -16,8 +16,8 @@
             <field name="customer_code" readonly="1"/>
             <field name="vit_customer_group"/>
             <field name="is_integrated" readonly="1"/>
+            <field name="allow_integrated_override" readonly="1"/>
             <field name="is_store"/>
-            <field name="id_mc" readonly="1"/>
         </xpath>
         
         <!-- Tambahkan field credit limit setelah property_account_receivable_id -->
