@@ -55,7 +55,7 @@
         'views/inventory_stock_view.xml',
         # 'views/inventory_counting_view.xml',
         # 'views/transfer_request_view.xml',
-        'views/res_config_settings_view.xml',
+        # 'views/res_config_settings_view.xml',
         # 'views/report_stock_view.xml',
         # 'views/barcode_config_views.xml',
         # # 'views/barcode_wizard_view.xml',

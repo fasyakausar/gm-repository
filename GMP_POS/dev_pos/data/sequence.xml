@@ -9,13 +9,5 @@
             <field name="padding">5</field>
             <field name="company_id" ref="base.main_company"/>
         </record>
-
-        <record id="seq_customer_code_company_2" model="ir.sequence">
-            <field name="name">Customer Code - Company B</field>
-            <field name="code">res.partner.customer.code</field>
-            <field name="prefix"></field>
-            <field name="padding">5</field>
-            <field name="company_id" eval="21"/>  <!-- ID = 21 dari metadata -->
-        </record>
     </data>
 </odoo>

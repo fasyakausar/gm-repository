@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="0">
+        <record id="group_contact_filtered" model="res.groups">
+            <field name="name">Contact Filtered</field>
+            <field name="implied_ids" eval="[(4, ref('base.group_user'))]"/>
+        </record>
+
+        <!-- your_module/security/security.xml -->
+        <record id="group_admin_access" model="res.groups">
+                <field name="name">Kepala Toko Acces</field>
+                <field name="category_id" ref="base.module_category_hidden"/>
+        </record>
+
+        <!-- Record rule untuk group Sales dan Kasir: hanya lihat customer -->
+        <record id="res_partner_customer_only_rule" model="ir.rule">
+            <field name="name">Partner: Only Customer for Sales and Kasir</field>
+            <field name="model_id" ref="base.model_res_partner"/>
+            <!-- Terapkan untuk group dev_pos.group_contact_filtered -->
+            <field name="groups" eval="[(4, ref('dev_pos.group_contact_filtered'))]"/>
+            <!-- Domain filter: hanya partner dengan gm_bp_type = 'customer' -->
+            <field name="domain_force">[('gm_bp_type', '=', 'customer')]</field>
+            <!-- Hanya batasi akses baca (read). Write, create, unlink tidak dibatasi (bisa disesuaikan) -->
+            <field name="perm_read" eval="True"/>
+            <field name="perm_write" eval="False"/>
+            <field name="perm_create" eval="False"/>
+            <field name="perm_unlink" eval="False"/>
+        </record>
+    </data>
+</odoo>

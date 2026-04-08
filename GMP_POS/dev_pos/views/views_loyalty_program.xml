@@ -7,6 +7,22 @@
       <field name="model">loyalty.program</field>
       <field name="inherit_id" ref="loyalty.loyalty_program_view_form"/>
       <field name="arch" type="xml">
+
+        <!-- tambahkan is_admin_access di sini, sebelum xpath lainnya -->
+        <field name="active" position="after">
+            <field name="is_admin_access" invisible="1"/>
+        </field>
+
+        <!-- sembunyikan smart button -->
+        <button name="action_open_loyalty_cards" position="attributes">
+            <attribute name="invisible">not is_admin_access</attribute>
+        </button>
+
+        <!-- sembunyikan button Generate Gift Cards -->
+        <xpath expr="//header/button[2]" position="attributes">
+            <attribute name="invisible">1</attribute>
+        </xpath>
+
         <xpath expr="//field[@name='date_to']" position="after">
             <field name="is_integrated"/>
             <field name="is_updated"/>
@@ -48,6 +64,7 @@
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
         </xpath>
+
       </field>
     </record>
 

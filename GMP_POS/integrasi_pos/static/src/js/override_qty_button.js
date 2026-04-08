@@ -12,8 +12,12 @@ import { InputNumberPopUpQty } from "./input_number_popup_qty";
 // ============================================================
 // Helper
 // ============================================================
-function isSelectedLineDP(pos) {
+function isSelectedLineFixedPrice(pos) {
     return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_fixed_price === true;
+}
+
+function isSelectedLineDP(pos) {
+    return pos?.get_order()?.get_selected_orderline()?.product?.gm_is_dp === true;
 }
 
 function removeSelectedDPLine(pos) {
@@ -122,8 +126,25 @@ patch(ProductScreen.prototype, {
         const mode = this.pos.numpadMode;
         const selectedLine = this.currentOrder?.get_selected_orderline();
 
-        // ── Guard: DP line ────────────────────────────────────────
-        if (mode === "quantity" && isSelectedLineDP(this.pos)) {
+        // ── Guard: DP line tidak bisa dihapus ────────────────────
+        if (isSelectedLineDP(this.pos)) {
+            // Blokir hapus via backspace (buffer kosong) maupun tombol delete di numpad
+            const isDeleteAction =
+                (key === "Backspace" && (buffer === null || buffer === "")) ||
+                key === "Delete";
+
+            if (isDeleteAction) {
+                this.numberBuffer.reset();
+                this.popup.add(ErrorPopup, {
+                    title: _t("Tidak Dapat Menghapus"),
+                    body: _t("Item Down Payment tidak dapat dihapus."),
+                });
+                return;
+            }
+        }
+
+        // ── Guard: DP line quantity tidak bisa diubah ─────────────
+        if (mode === "quantity" && isSelectedLineFixedPrice(this.pos)) {
             this.numberBuffer.reset();
             if (key === "Backspace") {
                 removeSelectedDPLine(this.pos);
@@ -150,10 +171,27 @@ patch(ProductScreen.prototype, {
         if (["quantity", "discount", "price"].includes(mode) && key !== "Backspace") {
             const product = this.getProductFromSelectedLine();
 
-            // Skip PIN validation jika product adalah Down Payment
-            const isDPProduct = mode === "price" && product?.gm_is_fixed_price === true;
-
-            if (!isDPProduct) {
+            // ── Logika validasi harga berdasarkan gm_is_fixed_price ──
+            //
+            // Fixed Price = TRUE  → ubah harga WAJIB pakai PIN manager
+            // Fixed Price = FALSE → ubah harga BEBAS, tidak perlu PIN
+            //
+            if (mode === "price") {
+                if (product?.gm_is_fixed_price === true) {
+                    // Fixed Price aktif → wajib minta PIN
+                    console.log("[gm_is_fixed_price] Fixed Price TRUE → minta PIN manager");
+                    const isValidated = await this.validateManagerAccess("price", product);
+                    if (!isValidated) {
+                        this.numberBuffer.reset();
+                        return;
+                    }
+                } else {
+                    // Fixed Price tidak aktif → bebas ubah harga tanpa PIN
+                    console.log("[gm_is_fixed_price] Fixed Price FALSE → skip validasi harga");
+                    // Tidak perlu validateManagerAccess untuk mode price
+                }
+            } else {
+                // Mode quantity / discount → validasi normal sesuai config
                 const isValidated = await this.validateManagerAccess(mode, product);
                 if (!isValidated) {
                     this.numberBuffer.reset();
@@ -216,7 +254,7 @@ patch(ProductScreen.prototype, {
     _setValue(val) {
         const { numpadMode } = this.pos;
 
-        if (numpadMode === "quantity" && isSelectedLineDP(this.pos)) {
+        if (numpadMode === "quantity" && isSelectedLineFixedPrice(this.pos)) {
             this.numberBuffer.reset();
             return;
         }

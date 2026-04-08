@@ -2,6 +2,8 @@
 
 import { Order, Orderline } from "@point_of_sale/app/store/models";
 import { patch } from "@web/core/utils/patch";
+// Di bagian atas file, tambahkan import jika belum ada:
+import { ErrorPopup } from "@point_of_sale/app/errors/popups/error_popup";
 
 // =====================================================
 // PATCH ORDERLINE - Set flag saat dibuat
@@ -57,12 +59,128 @@ patch(Order.prototype, {
     // pay(): rounding only → lanjut ke Payment Screen
     // --------------------------------------------------
     async pay() {
-        // Auto rounding
-        try {
-            this.applyAutoRounding();
-        } catch (error) {
-            console.error('❌ Error applying auto rounding:', error);
+        const order = this;
+        const pos = order.pos;
+        const currentPartner = order.get_partner();
+
+        console.group("💰 [GIFT CARD VALIDATION]");
+        console.log("Order total (with tax):", order.get_total_with_tax());
+
+        const giftCardRewardLines = order.get_orderlines().filter(line => 
+            line.is_reward_line && 
+            line.reward_id && 
+            pos.reward_by_id[line.reward_id]?.program_id?.program_type === 'gift_card'
+        );
+
+        console.log("Gift card reward lines found:", giftCardRewardLines.length);
+
+        if (giftCardRewardLines.length > 0) {
+            // Kumpulkan semua coupon_id
+            const couponIds = [];
+            for (const line of giftCardRewardLines) {
+                if (line.coupon_id) {
+                    couponIds.push(line.coupon_id);
+                }
+            }
+
+            if (couponIds.length === 0) {
+                console.warn("No coupon IDs found in gift card lines");
+                console.groupEnd();
+                return super.pay(...arguments);
+            }
+
+            // 🔥 FETCH DATA GIFT CARD LANGSUNG DARI SERVER (ORM)
+            let giftCards = [];
+            try {
+                giftCards = await pos.orm.searchRead(
+                    'loyalty.card',
+                    [['id', 'in', couponIds]],
+                    ['id', 'code', 'points', 'partner_id', 'program_id']
+                );
+                console.log("Fetched gift cards from server:", giftCards);
+            } catch (error) {
+                console.error("Failed to fetch gift cards from server:", error);
+                await pos.popup.add(ErrorPopup, {
+                    title: "Error Validasi Gift Card",
+                    body: "Gagal mengambil data gift card dari server. Silakan coba lagi.",
+                });
+                console.groupEnd();
+                return;
+            }
+
+            if (giftCards.length === 0) {
+                console.warn("No gift cards found on server for these coupons");
+                console.groupEnd();
+                return super.pay(...arguments);
+            }
+
+            // Hitung total saldo & kumpulkan partner_id
+            let totalGiftCardBalance = 0;
+            const partnerIds = new Set();
+            let expectedPartnerName = "";
+
+            for (const card of giftCards) {
+                totalGiftCardBalance += card.points || 0;
+                if (card.partner_id) {
+                    const pid = Array.isArray(card.partner_id) ? card.partner_id[0] : card.partner_id;
+                    partnerIds.add(Number(pid));
+                    // Ambil nama partner jika belum ada
+                    if (!expectedPartnerName) {
+                        const partner = pos.db.get_partner_by_id(pid);
+                        expectedPartnerName = partner ? partner.name : `ID ${pid}`;
+                    }
+                }
+            }
+
+            console.log("Total gift card balance (from server):", totalGiftCardBalance);
+            console.log("Partner IDs from gift cards:", Array.from(partnerIds));
+
+            // Validasi customer
+            const uniquePartnerIds = Array.from(partnerIds);
+            if (uniquePartnerIds.length > 1) {
+                await pos.popup.add(ErrorPopup, { 
+                    title: "Gift Card Tidak Konsisten", 
+                    body: "Gift card yang ditebus berasal dari customer berbeda. Silakan gunakan satu customer saja." 
+                });
+                console.groupEnd();
+                return;
+            }
+
+            if (uniquePartnerIds.length === 1) {
+                const expectedPartnerId = uniquePartnerIds[0];
+                if (!currentPartner || Number(currentPartner.id) !== expectedPartnerId) {
+                    await pos.popup.add(ErrorPopup, { 
+                        title: "Gift Card Tidak Sesuai", 
+                        body: `Gift card ini milik customer: ${expectedPartnerName}.\n\nSilakan pilih customer yang benar.` 
+                    });
+                    console.groupEnd();
+                    return;
+                }
+            }
+
+            // Validasi total belanja vs saldo gift card
+            const orderTotal = order.get_total_with_tax();
+            if (orderTotal < totalGiftCardBalance) {
+                const fmt = (amt) => pos.format_currency ? pos.format_currency(amt) : `Rp ${amt.toLocaleString('id-ID')}`;
+                await pos.popup.add(ErrorPopup, {
+                    title: "Total Belanja Kurang",
+                    body: `Total belanja (${fmt(orderTotal)}) kurang dari saldo gift card (${fmt(totalGiftCardBalance)}).\nSilakan tambah produk.`,
+                });
+                console.groupEnd();
+                return;
+            } else {
+                console.log("✅ Order total sufficient for gift card balance");
+            }
+        } else {
+            console.log("No gift card rewards in this order");
         }
+
+        console.log("Total Due:", order.get_total_with_tax());
+        console.log("Total Paid:", order.get_total_paid());
+        console.groupEnd();
+
+        // Auto rounding
+        try { this.applyAutoRounding(); } catch (e) { console.error(e); }
 
         return super.pay(...arguments);
     },

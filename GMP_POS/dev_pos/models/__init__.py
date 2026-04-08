@@ -27,7 +27,7 @@ from . import res_partner_title
 from . import uom_category
 from . import uom_uom
 from . import product_category
-from . import pos_config
+# from . import pos_config
 from . import pos_payment_method
 from . import hr_employee
 from . import loyalty_card
@@ -46,7 +46,7 @@ from . import account_move_line
 from . import loyalty_history
 from . import report_stock
 from . import customer_group
-from . import res_config_settings
+# from . import res_config_settings
 from . import return_approval
 from . import loyalty_generate_wizard
 from . import pos_order_debug
