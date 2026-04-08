@@ -36,5 +36,6 @@
     <!-- Add menu for `pos.receipt` -->
     <menuitem name="Receipt Designs" id="pos_receipt_menu_action"
               parent="point_of_sale.menu_point_config_product"
-              action="pos_receipt_action" sequence="50"/>
+              action="pos_receipt_action" sequence="50"
+              groups="custom_receipts_for_pos.group_admin_menu_access"/>
 </odoo>

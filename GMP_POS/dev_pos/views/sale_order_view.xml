@@ -1,6 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
 
+    <record id="group_sale_cashier" model="res.groups">
+        <field name="name">Pricelist Restriction</field>
+    </record>
+
+    <record id="view_sale_order_form_inherit_pricelist_cashier" model="ir.ui.view">
+        <field name="name">sale.order.form.pricelist.cashier</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <!-- Inject is_cashier SEBELUM pricelist_id -->
+            <xpath expr="//field[@name='pricelist_id']" position="before">
+                <field name="is_cashier" invisible="1"/>
+            </xpath>
+            <!-- Baru set readonly berdasarkan is_cashier -->
+            <xpath expr="//field[@name='pricelist_id']" position="attributes">
+                <attribute name="readonly">is_cashier != False</attribute>
+            </xpath>
+        </field>
+    </record>
+
     <!-- ══════════════════════════════════════════════════════
          WIZARD: Form pilih warehouse
     ══════════════════════════════════════════════════════ -->

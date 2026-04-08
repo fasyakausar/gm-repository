@@ -7,7 +7,7 @@
       <field name="model">stock.picking</field>
       <field name="inherit_id" ref="stock.view_picking_form"/>
       <field name="arch" type="xml">
-       <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="after">
+        <xpath expr="//form[1]/sheet[1]/group[1]/group[1]/field[@name='location_dest_id'][2]" position="after">
             <field name="target_location"/>
             <field name="stock_type"/>
         </xpath>
@@ -18,27 +18,20 @@
             <field name="gm_type_transfer"/>
             <field name="barcode_input" placeholder="Scan barcode here..." class="oe_inline" style="font-size: 18px; font-weight: bold;"/>
         </xpath>
-        
-        <!-- Field origin readonly ketika state ready/done -->
+
         <field name="origin" position="attributes">
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
-        
-        <!-- Field stock_type readonly ketika state ready/done -->
         <field name="stock_type" position="attributes">
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
-        
-        <!-- Field location_id readonly ketika state ready/done -->
         <field name="location_id" position="attributes">
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
-        
-        <!-- Field location_dest_id readonly ketika state ready/done -->
         <field name="location_dest_id" position="attributes">
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
-        
+
         <xpath expr="//field[@name='is_integrated']" position="attributes">
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
@@ -52,9 +45,13 @@
           <attribute name="readonly">True</attribute>
         </xpath>
 
-        <!-- Hilangkan button action_open_label_type -->
-        <!-- Invisible button action_open_label_type -->
+        <!-- Invisible button Print Labels -->
         <xpath expr="//button[@name='action_open_label_type']" position="attributes">
+          <attribute name="invisible">True</attribute>
+        </xpath>
+
+        <!-- Invisible button Return (data-hotkey='k' unik untuk button Return) -->
+        <xpath expr="//button[@data-hotkey='k']" position="attributes">
           <attribute name="invisible">True</attribute>
         </xpath>
 

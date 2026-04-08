@@ -59,6 +59,4 @@ class PosSession(models.Model):
             'receipt_bold_summary': config.receipt_bold_summary,
         }
 
-        _logger.info("✅ [RECEIPT ADDRESS] Loaded: %s", res['pos_receipt_address'])
-
         return res

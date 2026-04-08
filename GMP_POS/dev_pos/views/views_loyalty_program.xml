@@ -7,6 +7,22 @@
       <field name="model">loyalty.program</field>
       <field name="inherit_id" ref="loyalty.loyalty_program_view_form"/>
       <field name="arch" type="xml">
+
+        <!-- tambahkan is_admin_access di sini, sebelum xpath lainnya -->
+        <field name="active" position="after">
+            <field name="is_admin_access" invisible="1"/>
+        </field>
+
+        <!-- sembunyikan smart button -->
+        <button name="action_open_loyalty_cards" position="attributes">
+            <attribute name="invisible">not is_admin_access</attribute>
+        </button>
+
+        <!-- sembunyikan button Generate Gift Cards -->
+        <xpath expr="//header/button[2]" position="attributes">
+            <attribute name="invisible">1</attribute>
+        </xpath>
+
         <xpath expr="//field[@name='date_to']" position="after">
             <field name="is_integrated"/>
             <field name="is_updated"/>
@@ -48,7 +64,42 @@
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>
         </xpath>
+
       </field>
+    </record>
+
+    <record id="loyalty_card_view_form_inherit_readonly" model="ir.ui.view">
+        <field name="name">loyalty.card.view.form.inherit.readonly</field>
+        <field name="model">loyalty.card</field>
+        <field name="inherit_id" ref="loyalty.loyalty_card_view_form"/>
+        <field name="arch" type="xml">
+
+            <!-- Field: code (sudah readonly, pastikan tetap readonly) -->
+            <xpath expr="//field[@name='code']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+
+            <!-- Field: expiration_date -->
+            <xpath expr="//field[@name='expiration_date']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+
+            <!-- Field: partner_id -->
+            <xpath expr="//field[@name='partner_id']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+
+            <!-- Field: points -->
+            <xpath expr="//field[@name='points']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+
+            <!-- Field: point_name -->
+            <xpath expr="//field[@name='point_name']" position="attributes">
+                <attribute name="readonly">1</attribute>
+            </xpath>
+
+        </field>
     </record>
 
   </data>

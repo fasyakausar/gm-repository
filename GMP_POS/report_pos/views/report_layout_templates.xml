@@ -118,6 +118,8 @@
                     <th style="width: 12%;">Tanggal</th>
                     <th style="width: 15%;">Customer</th>
                     <th style="width: 10%;">DP Code</th>
+                    <th style="width: 10%;">Nota Online</th>  <!-- tambah -->
+                    <th style="width: 8%;">Nota Manual</th>  
                     <th style="width: 5%;">Quantity</th>
                     <th style="width: 10%;">Nominal</th>
                   </tr>
@@ -136,10 +138,16 @@
                         <t t-esc="order.partner_id.name or ''"/>
                       </td>
                       <td>
-                        <t t-esc="order.get_dp_code()"/>
+                          <t t-esc="order.get_dp_code()"/>
+                      </td>
+                      <td>
+                          <t t-esc="order.gm_invoice_e_commerce or ''"/>
+                      </td>
+                      <td>
+                          <t t-esc="order.gm_nota_manual or ''"/>
                       </td>
                       <td class="text-end">
-                        <t t-esc="sum(order.lines.mapped('qty') or [0])"/>
+                          <t t-esc="sum(order.lines.mapped('qty') or [0])"/>
                       </td>
                       <td class="text-end">
                         <t t-esc="format_number(sum(order.lines.mapped('price_subtotal_incl') or [0]))"/>

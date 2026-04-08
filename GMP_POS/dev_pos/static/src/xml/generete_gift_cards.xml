@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<odoo>
+    <t t-name="dev_pos.LoyaltyCardListView.buttons" 
+       t-inherit="loyalty.LoyaltyCardListView.buttons" 
+       t-inherit-mode="extension">
+        <xpath expr="//button[hasclass('o_loyalty_card_list_button_generate')]" position="attributes">
+            <attribute name="t-if">false</attribute>
+        </xpath>
+    </t>
+</odoo>

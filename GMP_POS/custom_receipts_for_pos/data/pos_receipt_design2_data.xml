@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo>
+<odoo noupdate="1">
     <!-- Examples for receipt design: which can be used or modified -->
     <record id="pos_receipt_design2_demo" model="pos.receipt">
         <field name="name">Design 2</field>

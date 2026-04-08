@@ -56,33 +56,70 @@ patch(Orderline.prototype, {
  * Patch Order untuk memastikan data konsisten di receipt
  */
 patch(Order.prototype, {
+    
     /**
-     * Override export_for_printing untuk menambahkan data harga asli
+     * Override init_from_JSON untuk membaca account_move_name dari data backend
+     */
+    init_from_JSON(json) {
+        super.init_from_JSON(json);
+ 
+        // ✅ Baca account_move_name dari data yang dikirim _export_for_ui
+        if (json.account_move_name) {
+            this.account_move_name = json.account_move_name;
+            console.log(`✅ init_from_JSON: account_move_name loaded = ${json.account_move_name} for order ${json.name}`);
+        } else {
+            // Jangan override jika sudah ada (misal dari payment screen)
+            if (!this.account_move_name) {
+                this.account_move_name = '';
+            }
+        }
+    },
+ 
+    /**
+     * Override export_as_JSON untuk menyertakan account_move_name saat save
+     */
+    export_as_JSON() {
+        const result = super.export_as_JSON();
+        result.account_move_name = this.account_move_name || '';
+        return result;
+    },
+ 
+    /**
+     * Override export_for_printing untuk inject account_move_name ke receipt data
+     * ✅ FIX: Pastikan account_move_name selalu tersertakan
      */
     export_for_printing() {
         const result = super.export_for_printing();
-
+ 
+        // ✅ is_printed
         result.is_printed = this.is_printed || false;
-        
-        // Ensure semua orderlines memiliki originalUnitPrice
+ 
+        // ✅ FIX INVOICE NO: Inject account_move_name
+        if (this.account_move_name) {
+            result.account_move_name = this.account_move_name;
+            console.log("✅ export_for_printing: account_move_name =", this.account_move_name);
+        } else {
+            console.warn("⚠️ export_for_printing: account_move_name NOT found on order:", this.name);
+        }
+ 
+        // ✅ Ensure semua orderlines memiliki originalUnitPrice
         result.orderlines = result.orderlines.map(line => {
-            // Cari orderline yang sesuai
-            const matchingLine = this.orderlines.find(ol => 
-                ol.get_full_product_name() === line.productName && 
+            const matchingLine = this.orderlines.find(ol =>
+                ol.get_full_product_name() === line.productName &&
                 Math.abs(ol.get_quantity() - parseFloat(line.qty)) < 0.001
             );
-            
+ 
             if (matchingLine) {
                 const originalPrice = this.env.utils.formatCurrency(matchingLine.get_taxed_lst_unit_price());
                 return {
                     ...line,
                     originalUnitPrice: originalPrice,
-                    unitPrice: originalPrice, // Override unitPrice dengan harga asli
+                    unitPrice: originalPrice,
                 };
             }
             return line;
         });
-        
+ 
         return result;
     },
 });
@@ -503,31 +540,29 @@ patch(PaymentScreen.prototype, {
     },
 
     /**
-     * ✅ NEW: Get shortcut amounts (untuk template)
+     * ✅ Get shortcut amounts (untuk template)
      */
     getShortcutAmounts() {
         const pos = this?.env?.pos || this?.pos;
-        if (!pos) return [10000, 20000]; // fallback aman
+        if (!pos) return [10000, 20000];
         const currentOrder = pos.get_order?.();
         const remainingAmount = currentOrder ? currentOrder.get_due() : 0;
         return this._calculateShortcutAmounts(remainingAmount);
     },
 
-
     /**
-     * ✅ NEW: Format shortcut label (untuk template)
+     * ✅ Format shortcut label (untuk template)
      */
     formatShortcutLabel(amount) {
         return this._formatShortcutLabel(amount);
     },
 
     /**
-     * ✅ NEW METHOD: Handle shortcut button click
+     * ✅ Handle shortcut button click
      */
     onShortcutClick(amount) {
         console.log(`🎯 Shortcut clicked: ${amount}`);
         
-        // Pastikan ada payment line yang selected
         if (!this.selectedPaymentLine) {
             console.warn("⚠️ No payment line selected");
             this.notification.add("Pilih payment method terlebih dahulu", {
@@ -536,28 +571,25 @@ patch(PaymentScreen.prototype, {
             return;
         }
         
-        // Set amount langsung
         this.selectedPaymentLine.set_amount(amount);
-        
-        // Reset number buffer
         this.numberBuffer.reset();
         
         console.log("✅ Payment amount updated via shortcut:", amount);
     },
 
     /**
-     * ✅ OVERRIDE: getNumpadButtons - TANPA SHORTCUT (karena sudah terpisah)
+     * ✅ OVERRIDE: getNumpadButtons
      */
     getNumpadButtons() {
         return [
             { value: "1" },
             { value: "2" },
             { value: "3" },
-            { value: "Quantity", text: "Qty" },  // Ganti shortcut dengan Qty
+            { value: "Quantity", text: "Qty" },
             { value: "4" },
             { value: "5" },
             { value: "6" },
-            { value: "Discount", text: "Disc" }, // Ganti shortcut dengan Disc
+            { value: "Discount", text: "Disc" },
             { value: "7" },
             { value: "8" },
             { value: "9" },
@@ -565,14 +597,35 @@ patch(PaymentScreen.prototype, {
             { value: this.env.services.localization.decimalPoint },
             { value: "0" },
             { value: "Backspace", text: "⌫" },
-            { value: "", text: "", disabled: true }, // Empty slot
+            { value: "", text: "", disabled: true },
         ];
     },
 
-    // ========== EXISTING METHODS (TIDAK PERLU DIUBAH) ==========
+    // ========== EXISTING METHODS ==========
 
     async _finalizeValidation() {
         console.group("🔐 FINALIZE VALIDATION START");
+        // ========== CEK KEMBALIAN (HANYA UNTUK NON-CASH) ==========
+        const change = this.currentOrder.get_change();
+        if (change > 0) {
+            const hasNonCashPayment = this.paymentLines.some(line => {
+                const journalType = line.payment_method?.journal_type;
+                const isDP = line.payment_method?.gm_is_dp === true;
+                // Lewati DP dari pengecekan, fokus ke payment non-cash yang bukan DP
+                return journalType && journalType !== 'cash' && !isDP;
+            });
+
+            if (hasNonCashPayment) {
+                await this.popup.add(ErrorPopup, {
+                    title: "Tidak Dapat Memvalidasi Order",
+                    body: `Order ini memiliki kembalian sebesar ${this.env.utils.formatCurrency(change)}.\n\nSilakan sesuaikan jumlah pembayaran agar tidak melebihi total belanja untuk metode pembayaran non-tunai.`,
+                });
+                console.groupEnd();
+                return;
+            } else {
+                console.log("✅ Kembalian diperbolehkan (non-cash hanya DP)");
+            }
+        }
         
         // ========== CHECK PIC STATUS ==========
         const cashierId = this.pos.get_cashier()?.id;
@@ -603,13 +656,11 @@ patch(PaymentScreen.prototype, {
             console.group("🎫 VALIDATING COUPON IS_USED STATUS");
             console.log("Found", activatedCoupons.length, "activated coupons");
 
-            // ✅ Fetch Master Server URL (don't block if fails)
             if (!this._masterServerURL) {
                 this._masterServerURL = await fetchMasterServerURL();
             }
 
             if (!this._masterServerURL) {
-                // ✅ WARNING ONLY - ASK USER TO CONTINUE
                 console.warn("⚠️ Master Server tidak ditemukan, validasi coupon dilewati");
                 
                 const { confirmed } = await this.popup.add(ConfirmPopup, {
@@ -631,16 +682,13 @@ patch(PaymentScreen.prototype, {
                 console.log("✅ User confirmed to continue without coupon validation");
                 console.groupEnd();
                 
-                // ✅ Skip coupon validation, continue to next steps
             } else {
-                // ✅ Master Server found, proceed with validation
                 for (const coupon of activatedCoupons) {
                     console.log(`Checking coupon: ${coupon.code} (ID: ${coupon.id})`);
                     
                     const checkResult = await checkCouponIsUsed(this._masterServerURL, coupon.code);
                     
                     if (!checkResult.success) {
-                        // ✅ API error - warning only, ask user
                         console.warn(`⚠️ Failed to validate coupon ${coupon.code}: ${checkResult.error}`);
                         
                         const { confirmed } = await this.popup.add(ConfirmPopup, {
@@ -658,7 +706,7 @@ patch(PaymentScreen.prototype, {
                             return;
                         }
                         
-                        continue; // Skip to next coupon
+                        continue;
                     }
 
                     if (checkResult.isUsed) {
@@ -794,6 +842,29 @@ patch(PaymentScreen.prototype, {
             }
 
             syncSuccess = true;
+            if (syncOrderResult && syncOrderResult.length > 0) {
+                const backendOrder = syncOrderResult[0];
+                if (backendOrder.account_move_name) {
+                    this.currentOrder.account_move_name = backendOrder.account_move_name;
+                    console.log("✅ Invoice No:", backendOrder.account_move_name);
+                } else if (backendOrder.account_move) {
+                    try {
+                        const moveData = await this.orm.read(
+                            'account.move',
+                            [Array.isArray(backendOrder.account_move) 
+                                ? backendOrder.account_move[0] 
+                                : backendOrder.account_move],
+                            ['name']
+                        );
+                        if (moveData && moveData.length > 0) {
+                            this.currentOrder.account_move_name = moveData[0].name;
+                            console.log("✅ Invoice No (fetched):", moveData[0].name);
+                        }
+                    } catch(e) {
+                        console.warn("⚠️ Failed to fetch invoice name:", e.message);
+                    }
+                }
+            }
             console.log("✅ Order synced successfully");
 
         } catch (error) {
@@ -902,9 +973,8 @@ patch(PaymentScreen.prototype, {
             await sendToPoleDisplay(line1, line2);
         }
 
-        // ========== ✅ OPTIMIZED: AUTO PRINT RECEIPT (NON-BLOCKING) ==========
+        // ========== ✅ AUTO PRINT RECEIPT (NON-BLOCKING) ==========
         if (syncSuccess) {
-            // ✅ Fire and forget - don't await
             (async () => {
                 try {
                     const config = await loadConfig();
@@ -918,7 +988,6 @@ patch(PaymentScreen.prototype, {
                     
                     console.log("📤 Sending receipt to print service...");
                     
-                    // ✅ Set timeout untuk print request
                     const controller = new AbortController();
                     const timeoutId = setTimeout(() => controller.abort(), 5000);
                     
@@ -944,14 +1013,12 @@ patch(PaymentScreen.prototype, {
                     } else {
                         console.error("❌ Print error:", error.message);
                     }
-                    // ✅ Don't block the flow even if print fails
                 }
             })();
         }
 
-        // ========== ✅ OPTIMIZED: CLEAR POLE DISPLAY (NON-BLOCKING) ==========
+        // ========== ✅ CLEAR POLE DISPLAY (NON-BLOCKING) ==========
         if (syncSuccess) {
-            // ✅ Fire and forget
             (async () => {
                 console.log("🧹 Clearing pole display...");
                 await clearPoleDisplay();
@@ -967,7 +1034,6 @@ patch(PaymentScreen.prototype, {
         console.log("✅ FINALIZE VALIDATION COMPLETED");
         console.groupEnd();
 
-        // ✅ Navigate immediately - don't wait for print/pole
         this.pos.showScreen(this.nextScreen);
     },
 
@@ -986,8 +1052,6 @@ patch(PaymentScreen.prototype, {
             
             this.numberBuffer.reset();
             
-            // ✅ PERUBAHAN: Cek gm_is_card field dari payment method
-            // Hanya tampilkan popup jika gm_is_card = True
             if (paymentMethod.gm_is_card === true) {
                 console.log(`💳 Card payment detected: ${paymentMethod.name} (gm_is_card=true)`);
                 
@@ -1012,7 +1076,6 @@ patch(PaymentScreen.prototype, {
                 }
             } else {
                 console.log(`💵 Non-card payment: ${paymentMethod.name} (gm_is_card=${paymentMethod.gm_is_card || false})`);
-                // Tidak perlu input card number untuk non-card payment
             }
             
             return true;

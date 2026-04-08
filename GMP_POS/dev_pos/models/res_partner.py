@@ -11,6 +11,11 @@ class ResPartner(models.Model):
     is_integrated = fields.Boolean(string="Integrated", default=False, readonly=True, tracking=True)
     index_store = fields.Many2many('setting.config', string="Index Store", readonly=True)
     vit_customer_group = fields.Many2one('customer.group', string="Customer Group", tracking=True)
+    allow_integrated_override = fields.Boolean(
+        string='Allow Integrated Override',
+        default=False,
+        help="If True, is_integrated will not be forced to False on write."
+    )
     gm_bp_type = fields.Selection([
         ('vendor', 'Vendor'),
         ('customer', 'Customer'),
@@ -22,6 +27,17 @@ class ResPartner(models.Model):
         tracking=True
     )
 
+    is_cashier = fields.Boolean(
+        string='Is Cashier',
+        compute='_compute_is_cashier',
+    )
+
+    @api.depends_context('uid')
+    def _compute_is_cashier(self):
+        is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
+        for partner in self:
+            partner.is_cashier = is_cashier
+
     @api.onchange('vit_customer_group')
     def _onchange_vit_customer_group(self):
         """Auto fill pricelist when customer group is selected"""
@@ -29,6 +45,13 @@ class ResPartner(models.Model):
             self.property_product_pricelist = self.vit_customer_group.vit_pricelist_id
 
     def write(self, vals):
+        if vals.get('allow_integrated_override'):
+            vals['is_integrated'] = True
+            del vals['allow_integrated_override']
+        else:
+            # Jika tidak ada flag, paksa is_integrated = False (perilaku default)
+            vals['is_integrated'] = False
+        
         # Auto fill pricelist when customer group is updated via write
         if 'vit_customer_group' in vals and vals['vit_customer_group']:
             customer_group = self.env['customer.group'].browse(vals['vit_customer_group'])

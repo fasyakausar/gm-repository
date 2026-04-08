@@ -25,10 +25,12 @@
             </div>
         </xpath>
 
-        <!-- Make Pricelist readonly when customer group is selected -->
+        <!-- Make Pricelist always readonly (abu-abu tidak bisa diubah) -->
         <xpath expr="//div[contains(@class, 'partner-detail') and .//label[@for='pricelist']]//select[@id='pricelist']" position="attributes">
-            <attribute name="t-att-disabled">changes.vit_customer_group ? 'disabled' : isFieldCommercialAndPartnerIsChild('property_product_pricelist')</attribute>
-            <attribute name="t-att-class">{'border-danger': missingFields.includes('property_product_pricelist'), 'bg-light': changes.vit_customer_group}</attribute>
+            <attribute name="disabled">disabled</attribute>
+            <attribute name="t-att-disabled"></attribute>
+            <attribute name="style">pointer-events: none; background-color: #e9ecef; opacity: 1;</attribute>
+            <attribute name="t-att-class">{'border-danger': missingFields.includes('property_product_pricelist'), 'bg-light': true}</attribute>
         </xpath>
     </t>
 </templates>
