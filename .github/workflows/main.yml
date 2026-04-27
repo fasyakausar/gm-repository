@@ -24,8 +24,7 @@ jobs:
 
     - name: Restart Odoo Service
       run: |
-        echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 22 root@217.216.75.141 'sudo -S systemctl restart odoo2.service'
-        echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 22 root@217.216.75.141 'sudo -S systemctl restart odoo3.service'
+        echo "${{ secrets.SSH_PASSWORD }}" | ssh -o StrictHostKeyChecking=no -p 22 root@217.216.75.141 'sudo -S systemctl restart odoo.service'
 
     # - name: Run Python Script
     #   run: |
