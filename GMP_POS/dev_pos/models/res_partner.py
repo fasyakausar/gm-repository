@@ -175,6 +175,12 @@ class ResPartner(models.Model):
             if company_id:
                 vals['company_id'] = company_id
 
+        if not vals.get('gm_bp_tax'):
+            company_id = vals.get('company_id') or self.env.company.id
+            company = self.env['res.company'].browse(company_id)
+            if company and company.account_sale_tax_id:
+                vals['gm_bp_tax'] = company.account_sale_tax_id.id
+
         if 'vit_customer_group' in vals and vals['vit_customer_group']:
             customer_group = self.env['customer.group'].search([
                 ('vit_group_name', '=', vals['vit_customer_group'])
