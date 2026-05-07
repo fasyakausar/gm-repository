@@ -1,36 +1,8 @@
 import requests
-import logging
-import traceback
 from datetime import datetime, timedelta
 import pytz
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
-
-_logger = logging.getLogger(__name__)
-
-
-class ResCompany(models.Model):
-    _inherit = 'res.company'
-
-    @api.model
-    def create(self, vals):
-        company = super().create(vals)
-        if company.partner_id:
-            company.partner_id.with_context(
-                skip_company_check=True,
-                skip_integrated_logic=True,
-            ).sudo().write({'company_id': company.id})
-
-            children = self.env['res.partner'].sudo().search([
-                ('parent_id', '=', company.partner_id.id),
-            ])
-            if children:
-                children.with_context(
-                    skip_company_check=True,
-                    skip_integrated_logic=True,
-                ).sudo().write({'company_id': company.id})
-        return company
-
 
 class ResPartner(models.Model):
     _inherit = 'res.partner'
@@ -51,7 +23,7 @@ class ResPartner(models.Model):
     gm_bp_tax = fields.Many2one(
         'account.tax',
         string='BP Tax',
-        domain=[('type_tax_use', '=', 'sale')],
+        domain=[('type_tax_use', '=', 'sale')],  # 'sale', 'purchase', atau 'none'
         tracking=True
     )
 
@@ -60,215 +32,169 @@ class ResPartner(models.Model):
         compute='_compute_is_cashier',
     )
 
-    @api.depends_context('uid')
-    def _compute_is_cashier(self):
-        is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
-        for partner in self:
-            partner.is_cashier = is_cashier
+    # @api.depends_context('uid')
+    # def _compute_is_cashier(self):
+    #     is_cashier = self.env.user.has_group('dev_pos.group_sale_cashier')
+    #     for partner in self:
+    #         partner.is_cashier = is_cashier
 
-    @api.onchange('vit_customer_group')
-    def _onchange_vit_customer_group(self):
-        if self.vit_customer_group and self.vit_customer_group.vit_pricelist_id:
-            self.property_product_pricelist = self.vit_customer_group.vit_pricelist_id
+    # @api.onchange('vit_customer_group')
+    # def _onchange_vit_customer_group(self):
+    #     """Auto fill pricelist when customer group is selected"""
+    #     if self.vit_customer_group and self.vit_customer_group.vit_pricelist_id:
+    #         self.property_product_pricelist = self.vit_customer_group.vit_pricelist_id
 
-    def _fix_child_company_id(self):
-        """Samakan company_id semua child address dengan parent company"""
-        for partner in self:
-            if not partner.is_company:
-                continue
-            children = self.env['res.partner'].sudo().search([
-                ('parent_id', '=', partner.id),
-                ('company_id', '!=', partner.company_id.id),
-            ])
-            if children:
-                children.with_context(
-                    skip_company_check=True,
-                    skip_integrated_logic=True,
-                ).sudo().write({'company_id': partner.company_id.id})
+    # def write(self, vals):
+    #     if vals.get('allow_integrated_override'):
+    #         vals['is_integrated'] = True
+    #         del vals['allow_integrated_override']
+    #     else:
+    #         # Jika tidak ada flag, paksa is_integrated = False (perilaku default)
+    #         vals['is_integrated'] = False
+        
+    #     # Auto fill pricelist when customer group is updated via write
+    #     if 'vit_customer_group' in vals and vals['vit_customer_group']:
+    #         customer_group = self.env['customer.group'].browse(vals['vit_customer_group'])
+    #         if customer_group and customer_group.vit_pricelist_id:
+    #             vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
+        
+    #     # Log perubahan untuk field tertentu ke chatter
+    #     for partner in self:
+    #         changes = []
+            
+    #         # Track phone changes
+    #         if 'phone' in vals:
+    #             old_phone = partner.phone or 'Not Set'
+    #             new_phone = vals['phone'] or 'Not Set'
+    #             if old_phone != new_phone:
+    #                 changes.append(f"Phone: {old_phone} → {new_phone}")
+            
+    #         # Track category_id changes
+    #         if 'category_id' in vals:
+    #             old_categories = ', '.join(partner.category_id.mapped('name')) if partner.category_id else 'Not Set'
+                
+    #             # Process new categories
+    #             new_category_ids = vals['category_id']
+    #             if new_category_ids:
+    #                 # Handle different formats of many2many write
+    #                 category_records = self.env['res.partner.category']
+    #                 for command in new_category_ids:
+    #                     if command[0] == 6:  # (6, 0, [ids])
+    #                         category_records = self.env['res.partner.category'].browse(command[2])
+    #                     elif command[0] == 4:  # (4, id)
+    #                         category_records |= self.env['res.partner.category'].browse(command[1])
+    #                     elif command[0] == 3:  # (3, id) - unlink
+    #                         continue
+    #                     elif command[0] == 5:  # (5,) - clear all
+    #                         category_records = self.env['res.partner.category']
+    #                         break
+    #                 new_categories = ', '.join(category_records.mapped('name')) if category_records else 'Not Set'
+    #             else:
+    #                 new_categories = 'Not Set'
+                
+    #             if old_categories != new_categories:
+    #                 changes.append(f"Tags: {old_categories} → {new_categories}")
+            
+    #         # Track customer_code changes
+    #         if 'customer_code' in vals:
+    #             old_code = partner.customer_code or 'Not Set'
+    #             new_code = vals['customer_code'] or 'Not Set'
+    #             if old_code != new_code:
+    #                 changes.append(f"Customer Code: {old_code} → {new_code}")
+            
+    #         # Track index_store changes
+    #         if 'index_store' in vals:
+    #             old_stores = ', '.join(partner.index_store.mapped('name')) if partner.index_store else 'Not Set'
+                
+    #             # Process new stores
+    #             new_store_ids = vals['index_store']
+    #             if new_store_ids:
+    #                 # Handle different formats of many2many write
+    #                 store_records = self.env['setting.config']
+    #                 for command in new_store_ids:
+    #                     if command[0] == 6:  # (6, 0, [ids])
+    #                         store_records = self.env['setting.config'].browse(command[2])
+    #                     elif command[0] == 4:  # (4, id)
+    #                         store_records |= self.env['setting.config'].browse(command[1])
+    #                     elif command[0] == 3:  # (3, id) - unlink
+    #                         continue
+    #                     elif command[0] == 5:  # (5,) - clear all
+    #                         store_records = self.env['setting.config']
+    #                         break
+    #                 new_stores = ', '.join(store_records.mapped('name')) if store_records else 'Not Set'
+    #             else:
+    #                 new_stores = 'Not Set'
+                
+    #             if old_stores != new_stores:
+    #                 changes.append(f"Index Store: {old_stores} → {new_stores}")
+            
+    #         # Track customer group changes
+    #         if 'vit_customer_group' in vals:
+    #             old_group = partner.vit_customer_group.vit_group_name if partner.vit_customer_group else 'Not Set'
+    #             new_group_id = vals['vit_customer_group']
+    #             if new_group_id:
+    #                 new_group_record = self.env['customer.group'].browse(new_group_id)
+    #                 new_group = new_group_record.vit_group_name if new_group_record else 'Not Set'
+    #             else:
+    #                 new_group = 'Not Set'
+                
+    #             if old_group != new_group:
+    #                 changes.append(f"Customer Group: {old_group} → {new_group}")
+            
+    #         # Track pricelist changes
+    #         if 'property_product_pricelist' in vals:
+    #             old_pricelist = partner.property_product_pricelist.name if partner.property_product_pricelist else 'Not Set'
+    #             new_pricelist_id = vals['property_product_pricelist']
+    #             if new_pricelist_id:
+    #                 new_pricelist_record = self.env['product.pricelist'].browse(new_pricelist_id)
+    #                 new_pricelist = new_pricelist_record.name if new_pricelist_record else 'Not Set'
+    #             else:
+    #                 new_pricelist = 'Not Set'
+                
+    #             if old_pricelist != new_pricelist:
+    #                 changes.append(f"Pricelist: {old_pricelist} → {new_pricelist}")
+            
+    #         # Post message to chatter if there are changes
+    #         if changes:
+    #             message = '\n'.join(changes)
+    #             partner.message_post(body=message, subject="Partner Information Updated")
+        
+    #     return super(ResPartner, self).write(vals)
 
-    def _check_company(self, fnames=None):
-        """
-        Override _check_company:
-        - Skip jika context skip_company_check aktif
-        - Skip jika partner is_company=True dan company_id belum di-set (bootstrap)
-        - Skip jika partner is_company=True dan company_id-nya adalah company
-          itu sendiri — ini valid, terjadi saat stock module memanggil
-          with_company(company).write() pada partner company baru
-        """
-        if self.env.context.get('skip_company_check'):
-            return
+    # @api.model
+    # def create(self, vals):
+    #     # Auto-fill company_id if not provided
+    #     if not vals.get('company_id'):
+    #         company_id = self.env.context.get('company_id')
+    #         if not company_id:
+    #             company_id = self.env.company.id
+    #         if not company_id:
+    #             company = self.env['res.company'].search([('active', '=', True)], limit=1)
+    #             if company:
+    #                 company_id = company.id
+    #         if company_id:
+    #             vals['company_id'] = company_id
 
-        allowed_company_ids = self.env.context.get('allowed_company_ids', [])
+    #     if not vals.get('gm_bp_tax'):
+    #         company_id = vals.get('company_id') or self.env.company.id
+    #         company = self.env['res.company'].browse(company_id)
+    #         if company and company.account_sale_tax_id:
+    #             vals['gm_bp_tax'] = company.account_sale_tax_id.id
 
-        partners_to_check = self.filtered(
-            lambda p: not (
-                # Skip: partner is_company tanpa company_id (sedang di-bootstrap)
-                (p.is_company and not p.company_id)
-                or
-                # Skip: partner is_company yang company_id-nya ada di allowed companies
-                # Ini kasus stock module memanggil with_company(company).write()
-                (p.is_company and p.company_id and p.company_id.id in allowed_company_ids)
-            )
-        )
+    #     if 'vit_customer_group' in vals and vals['vit_customer_group']:
+    #         customer_group = self.env['customer.group'].search([
+    #             ('vit_group_name', '=', vals['vit_customer_group'])
+    #         ], limit=1)
+    #         if customer_group and customer_group.vit_pricelist_id and 'property_product_pricelist' not in vals:
+    #             vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
 
-        if not partners_to_check:
-            return
+    #     # ✅ Auto-generate customer_code per company
+    #     if not vals.get('customer_code'):
+    #         company_id = vals.get('company_id') or self.env.company.id
+    #         customer_code_seq = self.env['ir.sequence'].sudo().with_company(
+    #             company_id
+    #         ).next_by_code('res.partner.customer.code')
+    #         if customer_code_seq:
+    #             vals['customer_code'] = customer_code_seq
 
-        try:
-            return super(ResPartner, partners_to_check)._check_company(fnames=fnames)
-        except UserError as e:
-            if 'Incompatible companies' in str(e):
-                self._fix_child_company_id()
-                for partner in self:
-                    if partner.is_company and not partner.company_id:
-                        partner.with_context(
-                            skip_company_check=True,
-                            skip_integrated_logic=True,
-                        ).sudo().write({'company_id': partner.id})
-                return
-            raise
-
-    def write(self, vals):
-        # Logic is_integrated hanya dijalankan jika bukan dari proses internal system
-        if not self.env.context.get('skip_integrated_logic'):
-            if vals.get('allow_integrated_override'):
-                vals['is_integrated'] = True
-                del vals['allow_integrated_override']
-            else:
-                vals['is_integrated'] = False
-
-        if 'vit_customer_group' in vals and vals['vit_customer_group']:
-            customer_group = self.env['customer.group'].browse(vals['vit_customer_group'])
-            if customer_group and customer_group.vit_pricelist_id:
-                vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
-
-        for partner in self:
-            changes = []
-
-            if 'phone' in vals:
-                old_phone = partner.phone or 'Not Set'
-                new_phone = vals['phone'] or 'Not Set'
-                if old_phone != new_phone:
-                    changes.append(f"Phone: {old_phone} → {new_phone}")
-
-            if 'category_id' in vals:
-                old_categories = ', '.join(partner.category_id.mapped('name')) if partner.category_id else 'Not Set'
-                new_category_ids = vals['category_id']
-                if new_category_ids:
-                    category_records = self.env['res.partner.category']
-                    for command in new_category_ids:
-                        if command[0] == 6:
-                            category_records = self.env['res.partner.category'].browse(command[2])
-                        elif command[0] == 4:
-                            category_records |= self.env['res.partner.category'].browse(command[1])
-                        elif command[0] == 3:
-                            continue
-                        elif command[0] == 5:
-                            category_records = self.env['res.partner.category']
-                            break
-                    new_categories = ', '.join(category_records.mapped('name')) if category_records else 'Not Set'
-                else:
-                    new_categories = 'Not Set'
-                if old_categories != new_categories:
-                    changes.append(f"Tags: {old_categories} → {new_categories}")
-
-            if 'customer_code' in vals:
-                old_code = partner.customer_code or 'Not Set'
-                new_code = vals['customer_code'] or 'Not Set'
-                if old_code != new_code:
-                    changes.append(f"Customer Code: {old_code} → {new_code}")
-
-            if 'index_store' in vals:
-                old_stores = ', '.join(partner.index_store.mapped('name')) if partner.index_store else 'Not Set'
-                new_store_ids = vals['index_store']
-                if new_store_ids:
-                    store_records = self.env['setting.config']
-                    for command in new_store_ids:
-                        if command[0] == 6:
-                            store_records = self.env['setting.config'].browse(command[2])
-                        elif command[0] == 4:
-                            store_records |= self.env['setting.config'].browse(command[1])
-                        elif command[0] == 3:
-                            continue
-                        elif command[0] == 5:
-                            store_records = self.env['setting.config']
-                            break
-                    new_stores = ', '.join(store_records.mapped('name')) if store_records else 'Not Set'
-                else:
-                    new_stores = 'Not Set'
-                if old_stores != new_stores:
-                    changes.append(f"Index Store: {old_stores} → {new_stores}")
-
-            if 'vit_customer_group' in vals:
-                old_group = partner.vit_customer_group.vit_group_name if partner.vit_customer_group else 'Not Set'
-                new_group_id = vals['vit_customer_group']
-                if new_group_id:
-                    new_group_record = self.env['customer.group'].browse(new_group_id)
-                    new_group = new_group_record.vit_group_name if new_group_record else 'Not Set'
-                else:
-                    new_group = 'Not Set'
-                if old_group != new_group:
-                    changes.append(f"Customer Group: {old_group} → {new_group}")
-
-            if 'property_product_pricelist' in vals:
-                old_pricelist = partner.property_product_pricelist.name if partner.property_product_pricelist else 'Not Set'
-                new_pricelist_id = vals['property_product_pricelist']
-                if new_pricelist_id:
-                    new_pricelist_record = self.env['product.pricelist'].browse(new_pricelist_id)
-                    new_pricelist = new_pricelist_record.name if new_pricelist_record else 'Not Set'
-                else:
-                    new_pricelist = 'Not Set'
-                if old_pricelist != new_pricelist:
-                    changes.append(f"Pricelist: {old_pricelist} → {new_pricelist}")
-
-            if changes:
-                message = '\n'.join(changes)
-                partner.message_post(body=message, subject="Partner Information Updated")
-
-        result = super(ResPartner, self).write(vals)
-
-        if 'company_id' in vals or 'is_company' in vals:
-            self._fix_child_company_id()
-
-        return result
-
-    @api.model
-    def create(self, vals):
-        if vals.get('is_company') and not vals.get('company_id'):
-            pass
-
-        if not vals.get('company_id'):
-            company_id = self.env.context.get('company_id')
-            if not company_id:
-                company_id = self.env.company.id
-            if not company_id:
-                company = self.env['res.company'].search([('active', '=', True)], limit=1)
-                if company:
-                    company_id = company.id
-            if company_id:
-                vals['company_id'] = company_id
-
-        if not vals.get('gm_bp_tax'):
-            company_id = vals.get('company_id') or self.env.company.id
-            company = self.env['res.company'].browse(company_id)
-            if company and company.account_sale_tax_id:
-                vals['gm_bp_tax'] = company.account_sale_tax_id.id
-
-        if 'vit_customer_group' in vals and vals['vit_customer_group']:
-            customer_group = self.env['customer.group'].search([
-                ('vit_group_name', '=', vals['vit_customer_group'])
-            ], limit=1)
-            if customer_group and customer_group.vit_pricelist_id and 'property_product_pricelist' not in vals:
-                vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
-
-        if not vals.get('customer_code'):
-            company_id = vals.get('company_id') or self.env.company.id
-            customer_code_seq = self.env['ir.sequence'].sudo().with_company(
-                company_id
-            ).next_by_code('res.partner.customer.code')
-            if customer_code_seq:
-                vals['customer_code'] = customer_code_seq
-
-        record = super(ResPartner, self).create(vals)
-        record._fix_child_company_id()
-        return record
+    #     return super(ResPartner, self).create(vals)
