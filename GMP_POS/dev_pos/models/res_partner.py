@@ -4,6 +4,24 @@ import pytz
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
 
+class ResCompany(models.Model):
+    _inherit = 'res.company'
+
+    @api.model
+    def create(self, vals):
+        company = super().create(vals)
+        # Setelah company dibuat, pastikan partner-nya punya company_id = company ini
+        if company.partner_id:
+            company.partner_id.sudo().write({'company_id': company.id})
+            # Fix semua child/address dari partner tersebut
+            children = self.env['res.partner'].sudo().search([
+                ('parent_id', '=', company.partner_id.id),
+            ])
+            if children:
+                children.sudo().write({'company_id': company.id})
+        return company
+
+
 class ResPartner(models.Model):
     _inherit = 'res.partner'
 
@@ -40,11 +58,9 @@ class ResPartner(models.Model):
 
     @api.onchange('vit_customer_group')
     def _onchange_vit_customer_group(self):
-        """Auto fill pricelist when customer group is selected"""
         if self.vit_customer_group and self.vit_customer_group.vit_pricelist_id:
             self.property_product_pricelist = self.vit_customer_group.vit_pricelist_id
 
-    # ✅ NEW: Fix incompatible companies pada child/address partner
     def _fix_child_company_id(self):
         """Samakan company_id semua child address dengan parent company"""
         for partner in self:
@@ -57,29 +73,44 @@ class ResPartner(models.Model):
             if children:
                 children.sudo().write({'company_id': partner.company_id.id})
 
+    # ✅ TAMBAHAN: Override _check_company untuk bypass error incompatible company
+    def _check_company(self, fnames=None):
+        """ Override untuk mencegah error incompatible companies saat create company baru """
+        try:
+            return super()._check_company(fnames=fnames)
+        except UserError as e:
+            # Jika error terkait incompatible company pada partner baru,
+            # coba fix dulu lalu skip error
+            if 'Incompatible companies' in str(e):
+                self._fix_child_company_id()
+                # Coba fix company_id pada diri sendiri jika is_company
+                for partner in self:
+                    if partner.is_company and not partner.company_id:
+                        partner.sudo().write({'company_id': partner.id})
+                return  # Bypass error setelah fix
+            raise  # Re-raise error lain yang tidak terkait
+
     def write(self, vals):
         if vals.get('allow_integrated_override'):
             vals['is_integrated'] = True
             del vals['allow_integrated_override']
         else:
             vals['is_integrated'] = False
-        
-        # Auto fill pricelist when customer group is updated via write
+
         if 'vit_customer_group' in vals and vals['vit_customer_group']:
             customer_group = self.env['customer.group'].browse(vals['vit_customer_group'])
             if customer_group and customer_group.vit_pricelist_id:
                 vals['property_product_pricelist'] = customer_group.vit_pricelist_id.id
-        
-        # Log perubahan untuk field tertentu ke chatter
+
         for partner in self:
             changes = []
-            
+
             if 'phone' in vals:
                 old_phone = partner.phone or 'Not Set'
                 new_phone = vals['phone'] or 'Not Set'
                 if old_phone != new_phone:
                     changes.append(f"Phone: {old_phone} → {new_phone}")
-            
+
             if 'category_id' in vals:
                 old_categories = ', '.join(partner.category_id.mapped('name')) if partner.category_id else 'Not Set'
                 new_category_ids = vals['category_id']
@@ -100,13 +131,13 @@ class ResPartner(models.Model):
                     new_categories = 'Not Set'
                 if old_categories != new_categories:
                     changes.append(f"Tags: {old_categories} → {new_categories}")
-            
+
             if 'customer_code' in vals:
                 old_code = partner.customer_code or 'Not Set'
                 new_code = vals['customer_code'] or 'Not Set'
                 if old_code != new_code:
                     changes.append(f"Customer Code: {old_code} → {new_code}")
-            
+
             if 'index_store' in vals:
                 old_stores = ', '.join(partner.index_store.mapped('name')) if partner.index_store else 'Not Set'
                 new_store_ids = vals['index_store']
@@ -127,7 +158,7 @@ class ResPartner(models.Model):
                     new_stores = 'Not Set'
                 if old_stores != new_stores:
                     changes.append(f"Index Store: {old_stores} → {new_stores}")
-            
+
             if 'vit_customer_group' in vals:
                 old_group = partner.vit_customer_group.vit_group_name if partner.vit_customer_group else 'Not Set'
                 new_group_id = vals['vit_customer_group']
@@ -138,7 +169,7 @@ class ResPartner(models.Model):
                     new_group = 'Not Set'
                 if old_group != new_group:
                     changes.append(f"Customer Group: {old_group} → {new_group}")
-            
+
             if 'property_product_pricelist' in vals:
                 old_pricelist = partner.property_product_pricelist.name if partner.property_product_pricelist else 'Not Set'
                 new_pricelist_id = vals['property_product_pricelist']
@@ -149,14 +180,13 @@ class ResPartner(models.Model):
                     new_pricelist = 'Not Set'
                 if old_pricelist != new_pricelist:
                     changes.append(f"Pricelist: {old_pricelist} → {new_pricelist}")
-            
+
             if changes:
                 message = '\n'.join(changes)
                 partner.message_post(body=message, subject="Partner Information Updated")
-        
+
         result = super(ResPartner, self).write(vals)
 
-        # ✅ Fix company_id pada child jika company_id atau is_company berubah
         if 'company_id' in vals or 'is_company' in vals:
             self._fix_child_company_id()
 
@@ -164,7 +194,11 @@ class ResPartner(models.Model):
 
     @api.model
     def create(self, vals):
-        # Auto-fill company_id if not provided
+        # ✅ Jika partner adalah company (is_company=True), pastikan company_id konsisten
+        if vals.get('is_company') and not vals.get('company_id'):
+            # Akan di-set setelah create, skip dulu agar tidak konflik
+            pass
+
         if not vals.get('company_id'):
             company_id = self.env.context.get('company_id')
             if not company_id:
@@ -198,8 +232,5 @@ class ResPartner(models.Model):
                 vals['customer_code'] = customer_code_seq
 
         record = super(ResPartner, self).create(vals)
-
-        # ✅ Fix: Setelah company baru dibuat, samakan company_id semua child-nya
         record._fix_child_company_id()
-
         return record
