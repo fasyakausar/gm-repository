@@ -3,6 +3,9 @@ from datetime import datetime, timedelta
 import pytz
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
+import logging
+import traceback
+_logger = logging.getLogger(__name__)
 
 class ResCompany(models.Model):
     _inherit = 'res.company'
@@ -82,29 +85,30 @@ class ResPartner(models.Model):
                 ).sudo().write({'company_id': partner.company_id.id})
 
     def _check_company(self, fnames=None):
-        """
-        Override _check_company:
-        - Skip jika context skip_company_check aktif
-        - Skip jika partner adalah is_company=True tapi belum punya company_id
-          (sedang dalam proses bootstrap create company baru)
-        - Untuk partner lain, jalankan check normal dengan fallback fix
-        """
+        # LOG SEMENTARA UNTUK DEBUG - hapus setelah masalah solved
+        _logger.warning("=== _check_company CALLED ===")
+        _logger.warning("Partners: %s", self.mapped(lambda p: f"{p.name}(is_company={p.is_company}, company_id={p.company_id.name if p.company_id else 'NONE'})"))
+        _logger.warning("Context: %s", self.env.context)
+        _logger.warning("Callstack:\n%s", ''.join(traceback.format_stack()))
+        # END LOG
+
         if self.env.context.get('skip_company_check'):
+            _logger.warning("=== SKIPPED via context ===")
             return
 
-        # Filter hanya partner yang perlu dicek
-        # Partner is_company yang company_id-nya belum set = sedang dibuat, skip
         partners_to_check = self.filtered(
             lambda p: not (p.is_company and not p.company_id)
         )
 
         if not partners_to_check:
+            _logger.warning("=== SKIPPED - no partners to check ===")
             return
 
         try:
             return super(ResPartner, partners_to_check)._check_company(fnames=fnames)
         except UserError as e:
             if 'Incompatible companies' in str(e):
+                _logger.warning("=== Incompatible companies caught, attempting fix ===")
                 self._fix_child_company_id()
                 for partner in self:
                     if partner.is_company and not partner.company_id:
