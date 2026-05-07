@@ -29,31 +29,10 @@ function removeSelectedDPLine(pos) {
 }
 
 // ============================================================
-// Patch Orderline
-// ============================================================
-patch(Orderline.prototype, {
-    set_quantity(quantity, keep_price) {
-        if (this.product?.gm_is_fixed_price) {
-            const alreadyHasQty = this.quantity !== undefined && this.quantity !== 0;
-            if (alreadyHasQty) {
-                console.warn("[gm_is_fixed_price] set_quantity BLOCKED:", this.product?.display_name, "current:", this.quantity, "new:", quantity);
-                return false;
-            }
-            console.log("[gm_is_fixed_price] set_quantity ALLOWED (initial):", this.product?.display_name, "qty:", quantity);
-        }
-        return super.set_quantity(quantity, keep_price);
-    },
-});
-
-// ============================================================
 // Patch SetPricelistButton
 // ============================================================
 patch(SetPricelistButton.prototype, {
     async click() {
-        // ── Baca group dari session Odoo yang login ───────────────
-        const userGroups = odoo.session_info?.user_context?.allowed_company_ids || [];
-        
-        // Cara lebih akurat: fetch via rpc
         const result = await this.env.services.orm.call(
             "res.users",
             "has_group",
@@ -104,16 +83,6 @@ patch(ProductScreen.prototype, {
     async validateManagerAccess(mode, product = null) {
         const config = this.pos.config || {};
 
-        console.log("🔍 validateManagerAccess:", {
-            mode,
-            manager_validation: config.manager_validation,
-            validate_price_change: config.validate_price_change,
-            validate_add_remove_quantity: config.validate_add_remove_quantity,
-            validate_discount: config.validate_discount,
-            validate_order_line_deletion: config.validate_order_line_deletion,
-            product_name: product?.display_name,
-        });
-
         const restrictedModes = {
             quantity: "validate_add_remove_quantity",
             discount: "validate_discount",
@@ -138,11 +107,6 @@ patch(ProductScreen.prototype, {
         return selectedLine.product || null;
     },
 
-    // ============================================================
-    // updateSelectedOrderline: titik intercept utama
-    // ============================================================
-    // Di dalam patch(ProductScreen.prototype, { ... })
-
     async updateSelectedOrderline({ buffer, key }) {
         console.log("🔴 updateSelectedOrderline CALLED", { buffer, key, mode: this.pos.numpadMode });
 
@@ -164,7 +128,7 @@ patch(ProductScreen.prototype, {
             }
         }
 
-        // ── Guard: DP line quantity tidak bisa diubah (FIX) ──────
+        // ── Guard: DP line quantity tidak bisa diubah ─────────────
         if (mode === "quantity" && isSelectedLineDP(this.pos)) {
             this.numberBuffer.reset();
             this.popup.add(ErrorPopup, {
@@ -174,7 +138,7 @@ patch(ProductScreen.prototype, {
             return;
         }
 
-        // ── Guard: Backspace / delete line (tetap) ──────────────
+        // ── Guard: Backspace / delete line ──────────────────────
         if (key === "Backspace" && (buffer === null || buffer === "")) {
             const isValidated = await this.validateManagerAccess("delete");
             if (!isValidated) {
@@ -188,7 +152,6 @@ patch(ProductScreen.prototype, {
         if (["quantity", "discount", "price"].includes(mode) && key !== "Backspace") {
             const product = this.getProductFromSelectedLine();
 
-            // Fixed Price: hanya untuk mode price (bukan quantity)
             if (mode === "price" && product?.gm_is_fixed_price === true) {
                 const isValidated = await this.validateManagerAccess("price", product);
                 if (!isValidated) {
@@ -196,7 +159,6 @@ patch(ProductScreen.prototype, {
                     return;
                 }
             } else if (mode !== "price") {
-                // mode quantity atau discount → validasi manager biasa
                 const isValidated = await this.validateManagerAccess(mode, product);
                 if (!isValidated) {
                     this.numberBuffer.reset();
@@ -249,13 +211,11 @@ patch(ProductScreen.prototype, {
             }
         }
 
-        // ── Default: jalankan logic asli Odoo ────────────────────
         return super.updateSelectedOrderline({ buffer, key });
     },
 
     _setValue(val) {
         const { numpadMode } = this.pos;
-        // Blokir input quantity untuk DP (FIX)
         if (numpadMode === "quantity" && isSelectedLineDP(this.pos)) {
             this.numberBuffer.reset();
             return;

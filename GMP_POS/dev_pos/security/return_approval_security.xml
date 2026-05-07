@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
-    <data noupdate="0">
+    <data>
         
         <!-- ========== MODULE CATEGORY ========== -->
         <record id="module_category_return_approval" model="ir.module.category">
