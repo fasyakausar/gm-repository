@@ -82,11 +82,27 @@ class ResPartner(models.Model):
                 ).sudo().write({'company_id': partner.company_id.id})
 
     def _check_company(self, fnames=None):
-        """Override untuk mencegah error incompatible companies saat create company baru"""
+        """
+        Override _check_company:
+        - Skip jika context skip_company_check aktif
+        - Skip jika partner adalah is_company=True tapi belum punya company_id
+          (sedang dalam proses bootstrap create company baru)
+        - Untuk partner lain, jalankan check normal dengan fallback fix
+        """
         if self.env.context.get('skip_company_check'):
             return
+
+        # Filter hanya partner yang perlu dicek
+        # Partner is_company yang company_id-nya belum set = sedang dibuat, skip
+        partners_to_check = self.filtered(
+            lambda p: not (p.is_company and not p.company_id)
+        )
+
+        if not partners_to_check:
+            return
+
         try:
-            return super()._check_company(fnames=fnames)
+            return super(ResPartner, partners_to_check)._check_company(fnames=fnames)
         except UserError as e:
             if 'Incompatible companies' in str(e):
                 self._fix_child_company_id()
