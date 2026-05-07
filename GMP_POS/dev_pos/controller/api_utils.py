@@ -4,24 +4,45 @@ from odoo import http, _
 import werkzeug.exceptions
 
 def check_authorization():
+    """Memeriksa header Authorization dengan password di setting.config (server='mc')."""
     request_auth_header = http.request.httprequest.headers.get('Authorization')
     if not request_auth_header:
         raise werkzeug.exceptions.Unauthorized(_('Authorization header not found.'))
-    
-    # Retrieve all tokens for Odoo, SAP, and Netsuite
-    token_records = http.request.env['token.generate'].sudo().search([
-        ('vit_client_name', 'in', ['Odoo', 'SAP', 'Netsuite'])
-    ])
-    
-    # Check if the request header matches any of the stored tokens
-    valid_token = False
-    for token in token_records:
-        if token.vit_encrypt == request_auth_header:
-            valid_token = True
-            break
-    
-    if not valid_token:
+
+    config_record = http.request.env['setting.config'].sudo().search([
+        ('vit_config_server', '=', 'mc')
+    ], limit=1)
+
+    if not config_record or not config_record.vit_config_password:
+        raise werkzeug.exceptions.Unauthorized(_('No configuration found.'))
+
+    if request_auth_header != config_record.vit_config_password:
         raise werkzeug.exceptions.Unauthorized(_('Invalid authorization header.'))
+
+
+def get_authenticated_env(server_key='mc'):
+    """
+    Cari user berdasarkan vit_config_username di setting.config (server_key),
+    lalu kembalikan environment dengan user tersebut.
+    Raise werkzeug.exceptions.Unauthorized jika gagal.
+    """
+    config = http.request.env['setting.config'].sudo().search([
+        ('vit_config_server', '=', server_key)
+    ], limit=1)
+
+    if not config:
+        raise werkzeug.exceptions.Unauthorized(_('Configuration not found.'))
+
+    user = http.request.env['res.users'].sudo().search([
+        ('login', '=', config.vit_config_username),
+        ('active', '=', True),
+    ], limit=1)
+
+    if not user:
+        raise werkzeug.exceptions.Unauthorized(_('Authentication failed. User not found.'))
+
+    return http.request.env(user=user.id)
+
 
 def paginate_records(model, domain, pageSize, page):
     pageSize = int(pageSize)
@@ -30,6 +51,7 @@ def paginate_records(model, domain, pageSize, page):
     total_records = http.request.env[model].sudo().search_count(domain)
     records = http.request.env[model].sudo().search(domain, limit=pageSize, offset=offset)
     return records, total_records
+
 
 def serialize_response(data, total_records, total_pages):
     response_data = {
@@ -44,6 +66,7 @@ def serialize_response(data, total_records, total_pages):
         content_type='application/json; charset=utf-8',
         response=json.dumps(response_data)
     )
+
 
 def serialize_error_response(error_description):
     return werkzeug.wrappers.Response(
