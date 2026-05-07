@@ -1,11 +1,13 @@
 import requests
+import logging
+import traceback
 from datetime import datetime, timedelta
 import pytz
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
-import logging
-import traceback
+
 _logger = logging.getLogger(__name__)
+
 
 class ResCompany(models.Model):
     _inherit = 'res.company'
@@ -85,30 +87,37 @@ class ResPartner(models.Model):
                 ).sudo().write({'company_id': partner.company_id.id})
 
     def _check_company(self, fnames=None):
-        # LOG SEMENTARA UNTUK DEBUG - hapus setelah masalah solved
-        _logger.warning("=== _check_company CALLED ===")
-        _logger.warning("Partners: %s", self.mapped(lambda p: f"{p.name}(is_company={p.is_company}, company_id={p.company_id.name if p.company_id else 'NONE'})"))
-        _logger.warning("Context: %s", self.env.context)
-        _logger.warning("Callstack:\n%s", ''.join(traceback.format_stack()))
-        # END LOG
-
+        """
+        Override _check_company:
+        - Skip jika context skip_company_check aktif
+        - Skip jika partner is_company=True dan company_id belum di-set (bootstrap)
+        - Skip jika partner is_company=True dan company_id-nya adalah company
+          itu sendiri — ini valid, terjadi saat stock module memanggil
+          with_company(company).write() pada partner company baru
+        """
         if self.env.context.get('skip_company_check'):
-            _logger.warning("=== SKIPPED via context ===")
             return
 
+        allowed_company_ids = self.env.context.get('allowed_company_ids', [])
+
         partners_to_check = self.filtered(
-            lambda p: not (p.is_company and not p.company_id)
+            lambda p: not (
+                # Skip: partner is_company tanpa company_id (sedang di-bootstrap)
+                (p.is_company and not p.company_id)
+                or
+                # Skip: partner is_company yang company_id-nya ada di allowed companies
+                # Ini kasus stock module memanggil with_company(company).write()
+                (p.is_company and p.company_id and p.company_id.id in allowed_company_ids)
+            )
         )
 
         if not partners_to_check:
-            _logger.warning("=== SKIPPED - no partners to check ===")
             return
 
         try:
             return super(ResPartner, partners_to_check)._check_company(fnames=fnames)
         except UserError as e:
             if 'Incompatible companies' in str(e):
-                _logger.warning("=== Incompatible companies caught, attempting fix ===")
                 self._fix_child_company_id()
                 for partner in self:
                     if partner.is_company and not partner.company_id:
