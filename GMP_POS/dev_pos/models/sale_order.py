@@ -104,26 +104,24 @@ class SaleOrder(models.Model):
         ], limit=1)
 
     def _validate_bp_tax_vs_mapping(self, partner, warehouse):
-        """
-        Validasi bp_tax partner vs mapping tax warehouse.
-
-        Return (valid, mapping_tax, message):
-          - valid=True  → bp_tax cocok dengan mapping, mapping_tax = tax yg harus dipakai
-          - valid=False → tidak cocok, message berisi penjelasan
-          - valid=None  → tidak ada bp_tax atau mapping, lewati validasi
-        """
         if not partner or not warehouse:
-            return None, False, ''
-
-        bp_tax = partner.gm_bp_tax
-        if not bp_tax:
             return None, False, ''
 
         mapping = self._get_mapping_tax_for_warehouse(warehouse)
         if not mapping:
             return None, False, ''
 
-        # Tentukan tax mapping berdasarkan kondisi bp_tax partner
+        bp_tax = partner.gm_bp_tax
+
+        # ── BARU: jika bp_tax kosong, tentukan mapping_tax dari amount 0 sebagai default ──
+        if not bp_tax:
+            # Gunakan gm_tax_code (normal) sebagai default jika bp_tax tidak diisi
+            mapping_tax = mapping.gm_tax_code
+            if not mapping_tax:
+                return None, False, ''
+            return True, mapping_tax, ''
+
+        # ── bp_tax ada: tentukan mapping_tax sesuai rate ──
         if bp_tax.amount == 0:
             mapping_tax = mapping.gm_tax_code_0
             label = 'Tax 0% (gm_tax_code_0)'
@@ -134,7 +132,6 @@ class SaleOrder(models.Model):
         if not mapping_tax:
             return None, False, ''
 
-        # bp_tax partner harus sama persis dengan mapping_tax WH
         if bp_tax.id != mapping_tax.id:
             message = _(
                 "BP Tax partner tidak sesuai mapping warehouse!\n\n"

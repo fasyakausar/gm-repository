@@ -6,7 +6,11 @@ from datetime import datetime
 import json
 import logging
 import base64
+import time
+from itertools import groupby
 from odoo.exceptions import AccessError
+from .api_utils import check_authorization, get_authenticated_env
+from psycopg2.extras import execute_values
 
 _logger = logging.getLogger(__name__)
 
@@ -555,645 +559,828 @@ class POSTMasterBoM(http.Controller):
                 'message': f"Failed to process BoMs: {str(e)}"
             }
 
+# =========================================================
+# KONFIGURASI BATCH
+# =========================================================
+PRODUCT_SEARCH_CHUNK = 5000   # chunk saat preload produk dari DB
+BATCH_CREATE_SIZE    = 500    # jumlah record per batch ORM create
+BATCH_UPDATE_COMMIT  = 1000   # jumlah record per commit saat update
+LINE_CREATE_CHUNK    = 5000
+LINE_UPDATE_CHUNK    = 2000
+ 
+# =========================================================
+# FIELD MAPPING
+# =========================================================
+# Field yang ada di product_template (raw SQL aman)
+TMPL_SCALAR_FIELDS = [
+    'name', 'active', 'detailed_type', 'invoice_policy',
+    'list_price', 'standard_price',
+    'uom_id', 'uom_po_id', 'categ_id',
+    'available_in_pos',
+    'vit_sub_div', 'vit_item_kel', 'vit_item_type', 'brand',
+    'gm_sub_category', 'gm_class', 'gm_manufacturer', 'gm_is_fixed_price',
+]
+ 
+# Field yang ada di product_product (perlu update tabel kedua)
+PP_SCALAR_FIELDS = [
+    'default_code', 'barcode', 'active',
+]
+ 
+# Field M2M — tetap pakai ORM
+M2M_FIELDS = ['pos_categ_ids', 'taxes_id']
+ 
+# Field yang dibandingkan sebelum write
+COMPARABLE_FIELDS = TMPL_SCALAR_FIELDS + ['default_code', 'barcode']
+ 
+ 
+# =========================================================
+# HELPER: SAVEPOINT
+# =========================================================
+class savepoint:
+    def __init__(self, cr, name):
+        self.cr   = cr
+        self.name = name
+ 
+    def __enter__(self):
+        self.cr.execute(f"SAVEPOINT {self.name}")
+        return self
+ 
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type:
+            self.cr.execute(f"ROLLBACK TO SAVEPOINT {self.name}")
+        else:
+            self.cr.execute(f"RELEASE SAVEPOINT {self.name}")
+        return False
+ 
+ 
+# =========================================================
+# HELPER: PARSE DATE (cached)
+# =========================================================
+_date_cache = {}
+ 
+def parse_date(s):
+    if not s:
+        return None
+    if s in _date_cache:
+        return _date_cache[s]
+    try:
+        result = datetime.strptime(s.split('.')[0], '%Y-%m-%d %H:%M:%S')
+    except Exception:
+        result = None
+    _date_cache[s] = result
+    return result
+ 
+# =========================================================
+# BULK UPDATE PRICELIST LINES via executemany (raw SQL)
+# =========================================================
+def bulk_update_pricelist_lines(cr, updates):
+    """
+    updates: list of dict {line_id, fixed_price, percent_price, compute_price,
+                           min_quantity, date_start, date_end, applied_on,
+                           price_discount, price_surcharge, price_round,
+                           price_min_margin, price_max_margin}
+    Satu query UPDATE ... FROM (VALUES ...) untuk semua baris sekaligus.
+    """
+    if not updates:
+        return
+ 
+    rows = []
+    for u in updates:
+        rows.append((
+            u['line_id'],
+            u.get('fixed_price')    or 0.0,
+            u.get('percent_price')  or 0.0,
+            u.get('compute_price')  or 'fixed',
+            u.get('min_quantity')   or 0.0,
+            u.get('date_start'),
+            u.get('date_end'),
+            u.get('applied_on')     or '1_product',
+            u.get('price_discount') or 0.0,
+            u.get('price_surcharge')or 0.0,
+            u.get('price_round')    or 0.0,
+            u.get('price_min_margin') or 0.0,
+            u.get('price_max_margin') or 0.0,
+        ))
+ 
+    # Gunakan modul psycopg2.extras.execute_values agar lebih efisien
+    execute_values(cr, """
+        UPDATE product_pricelist_item AS ppi
+        SET
+            fixed_price     = v.fixed_price::numeric,
+            percent_price   = v.percent_price::numeric,
+            compute_price   = v.compute_price,
+            min_quantity    = v.min_quantity::numeric,
+            date_start      = v.date_start::timestamp,
+            date_end        = v.date_end::timestamp,
+            applied_on      = v.applied_on,
+            price_discount  = v.price_discount::numeric,
+            price_surcharge = v.price_surcharge::numeric,
+            price_round     = v.price_round::numeric,
+            price_min_margin= v.price_min_margin::numeric,
+            price_max_margin= v.price_max_margin::numeric
+        FROM (VALUES %s) AS v(
+            id, fixed_price, percent_price, compute_price,
+            min_quantity, date_start, date_end, applied_on,
+            price_discount, price_surcharge, price_round,
+            price_min_margin, price_max_margin
+        )
+        WHERE ppi.id = v.id::int
+    """, rows)
+
+
+# ── Tunable constants ────────────────────────────────────────────────────────
+CHUNK_CREATE = 500   # rows per bulk INSERT  (tunable: 200–500)
+CHUNK_UPDATE = 200   # rows per UPDATE loop  (tunable: 100–200)
+# For 20K products × N companies the pre-fetch approach below keeps
+# DB round-trips O(fields) instead of O(products).
+# ─────────────────────────────────────────────────────────────────────────────
+ 
+ 
 class POSTMasterItem(http.Controller):
+ 
     @http.route('/api/master_item', type='json', auth='none', methods=['POST'], csrf=False)
     def post_master_item(self, **kw):
         try:
-            # Autentikasi
-            config = request.env['setting.config'].sudo().search(
-                [('vit_config_server', '=', 'mc')], limit=1
-            )
-            if not config:
-                return {
-                    'code': 500,
-                    'status': 'Failed',
-                    'message': 'Configuration not found.'
-                }
-
-            uid = request.session.authenticate(
-                request.session.db,
-                config.vit_config_username,
-                config.vit_config_password_api
-            )
-            if not uid:
-                return {
-                    'code': 401,
-                    'status': 'Failed',
-                    'message': 'Authentication failed.'
-                }
-
-            env = request.env(user=request.env.ref('base.user_admin').id)
-
-            # Get all active companies
+            # ── Autentikasi ──────────────────────────────────────────────────
+            check_authorization()
+ 
+            env = get_authenticated_env('mc')
+ 
+            # ── Validate companies ───────────────────────────────────────────
             companies = env['res.company'].sudo().search([('active', '=', True)])
             if not companies:
-                return {
-                    'status': "Failed",
-                    'code': 404,
-                    'message': "No active companies found."
-                }
-
+                return {'status': 'Failed', 'code': 404, 'message': 'No active companies found.'}
+ 
+            # ── Parse payload ────────────────────────────────────────────────
             json_data = request.get_json_data()
             items = json_data.get('items', [])
             if isinstance(items, dict):
                 items = [items]
             elif not isinstance(items, list):
-                return {
-                    'code': 400,
-                    'status': 'Failed',
-                    'message': "'items' must be a list or object."
-                }
-
+                return {'code': 400, 'status': 'Failed', 'message': "'items' must be a list or object."}
+ 
+            if not items:
+                return {'code': 400, 'status': 'Failed', 'message': "'items' list is empty."}
+ 
             created = []
             updated = []
             failed = []
-
-            # Process each item
-            for data_item in items:
-                try:
+ 
+            company_ids = companies.ids
+ 
+            # ── Pre-fetch lookup tables (ONE query each, shared across all companies) ──
+ 
+            all_product_codes = [i['product_code'] for i in items if i.get('product_code')]
+ 
+            # {(default_code, company_id): product.template browse record}
+            existing_products_map: dict = {}
+            if all_product_codes:
+                recs = env['product.template'].sudo().with_context(active_test=False).search(
+                    [('default_code', 'in', all_product_codes),
+                     ('company_id', 'in', company_ids)],
+                    # Only fetch fields we actually need for the result dict
+                )
+                for p in recs:
+                    existing_products_map[(p.default_code, p.company_id.id)] = p
+ 
+            # Category cache  {complete_name: id}
+            cat_names = list({i['category_name'] for i in items if i.get('category_name')})
+            category_cache: dict = {}
+            if cat_names:
+                cats = env['product.category'].sudo().search([('complete_name', 'in', cat_names)])
+                category_cache = {c.complete_name: c.id for c in cats}
+ 
+            # POS category cache  {name: id}
+            pos_names: set = set()
+            for i in items:
+                raw = i.get('pos_categ_ids', i.get('pos_categ_id', []))
+                for v in (raw if isinstance(raw, list) else [raw]):
+                    if isinstance(v, str):
+                        pos_names.add(v)
+            pos_cache: dict = {}
+            if pos_names:
+                pos_cats = env['pos.category'].sudo().search([('name', 'in', list(pos_names))])
+                pos_cache = {c.name: c.id for c in pos_cats}
+ 
+            # Tax cache  {(name, company_id): id}  — company_id may be None (global tax)
+            tax_names_all: set = set()
+            for i in items:
+                raw = i.get('taxes_names', i.get('taxes_name', []))
+                for v in (raw if isinstance(raw, list) else [raw]):
+                    if v:
+                        tax_names_all.add(v)
+            tax_cache: dict = {}
+            if tax_names_all:
+                taxes = env['account.tax'].sudo().search([
+                    ('name', 'in', list(tax_names_all)),
+                    '|', ('company_id', 'in', company_ids), ('company_id', '=', False)
+                ])
+                for t in taxes:
+                    key = (t.name, t.company_id.id if t.company_id else None)
+                    tax_cache.setdefault(key, t.id)
+ 
+            # UOM cache  {name_or_id: uom_id}
+            uom_cache: dict = {}
+ 
+            def resolve_uom(val):
+                if isinstance(val, int):
+                    return val
+                if val in uom_cache:
+                    return uom_cache[val]
+                result = env['uom.uom'].get_uom_id_from_identifier(val)
+                if not result:
+                    raise ValueError(f"UOM '{val}' not found")
+                uom_cache[val] = result
+                return result
+ 
+            # ── Helper: build product_data dict ──────────────────────────────
+            def build_product_data(data_item, company_id, create_uid=None):
+                active = data_item.get('active', True)
+                if not isinstance(active, bool):
+                    active = (
+                        str(active).lower() not in ('false', '0', 'no')
+                        if isinstance(active, str) else bool(active)
+                    )
+ 
+                gm_is_fixed_price = data_item.get('gm_is_fixed_price', False)
+                if not isinstance(gm_is_fixed_price, bool):
+                    gm_is_fixed_price = (
+                        str(gm_is_fixed_price).lower() in ('true', '1', 'yes')
+                        if isinstance(gm_is_fixed_price, str) else bool(gm_is_fixed_price)
+                    )
+ 
+                category_id = category_cache.get(data_item.get('category_name'), False)
+ 
+                uom_id    = resolve_uom(data_item.get('uom_id', 1))
+                uom_po_id = resolve_uom(data_item.get('uom_po_id', 1))
+ 
+                pos_ids = []
+                pos_raw = data_item.get('pos_categ_ids', data_item.get('pos_categ_id', []))
+                for v in (pos_raw if isinstance(pos_raw, list) else [pos_raw]):
+                    if isinstance(v, str) and v in pos_cache:
+                        pos_ids.append(pos_cache[v])
+                    elif isinstance(v, int):
+                        pos_ids.append(v)
+ 
+                tax_ids = []
+                tax_raw = data_item.get('taxes_names', data_item.get('taxes_name', []))
+                for v in (tax_raw if isinstance(tax_raw, list) else [tax_raw]):
+                    if not v:
+                        continue
+                    tid = tax_cache.get((v, company_id)) or tax_cache.get((v, None))
+                    if tid:
+                        tax_ids.append(tid)
+ 
+                cost = data_item.get('standard_price', data_item.get('cost', 0.0))
+ 
+                data = {
+                    'name':              data_item.get('product_name'),
+                    'active':            active,
+                    'default_code':      data_item.get('product_code'),
+                    'detailed_type':     data_item.get('product_type', 'product'),
+                    'invoice_policy':    data_item.get('invoice_policy', 'order'),
+                    'create_date':       data_item.get('create_date'),
+                    'list_price':        data_item.get('sales_price', 0.0),
+                    'standard_price':    cost,
+                    'uom_id':            uom_id,
+                    'uom_po_id':         uom_po_id,
+                    'pos_categ_ids':     [(6, 0, pos_ids)] if pos_ids else False,
+                    'categ_id':          category_id,
+                    'taxes_id':          [(6, 0, tax_ids)] if tax_ids else False,
+                    'available_in_pos':  data_item.get('available_in_pos', True),
+                    'image_1920':        data_item.get('image_1920'),
+                    'barcode':           data_item.get('barcode'),
+                    'vit_sub_div':       data_item.get('vit_sub_div'),
+                    'vit_item_kel':      data_item.get('vit_item_kel'),
+                    'vit_item_type':     data_item.get('vit_item_type'),
+                    'brand':             data_item.get('vit_item_brand'),
+                    'gm_sub_category':   data_item.get('gm_sub_category'),
+                    'gm_class':          data_item.get('gm_class'),
+                    'gm_manufacturer':   data_item.get('gm_manufacturer'),
+                    'gm_is_fixed_price': gm_is_fixed_price,
+                    'company_id':        company_id,
+                }
+                if create_uid is not None:
+                    data['create_uid'] = create_uid
+ 
+                return data
+ 
+            # ── Per-company processing ────────────────────────────────────────
+            for company in companies:
+                to_create: list = []   # [(data_item, product_data), ...]
+                to_update: list = []   # [(data_item, existing_record, product_data), ...]
+ 
+                for data_item in items:
                     product_code = data_item.get('product_code')
                     if not product_code:
-                        failed.append({
-                            'data': data_item,
-                            'company_id': None,
-                            'company_name': None,
-                            'message': "Missing product_code",
-                            'id': None
-                        })
+                        failed.append(_fail(data_item, company, 'Missing product_code'))
                         continue
-
-                    # Active/Archive boolean validation
-                    active = data_item.get('active', True)
-                    if not isinstance(active, bool):
-                        if isinstance(active, str):
-                            active = active.lower() not in ['false', '0', 'no']
-                        else:
-                            active = bool(active)
-
-                    # gm_is_fixed_price boolean validation
-                    gm_is_fixed_price = data_item.get('gm_is_fixed_price', False)
-                    if not isinstance(gm_is_fixed_price, bool):
-                        if isinstance(gm_is_fixed_price, str):
-                            gm_is_fixed_price = gm_is_fixed_price.lower() in ['true', '1', 'yes']
-                        else:
-                            gm_is_fixed_price = bool(gm_is_fixed_price)
-
-                    # Loop through all companies
-                    for company in companies:
+ 
+                    try:
+                        pdata = build_product_data(data_item, company.id)
+                    except Exception as e:
+                        failed.append(_fail(data_item, company, f'Error building data: {e}'))
+                        continue
+ 
+                    existing = existing_products_map.get((product_code, company.id))
+                    if existing:
+                        to_update.append((data_item, existing, pdata))
+                    else:
+                        to_create.append((data_item, pdata))
+ 
+                # ── CHUNK UPDATE (row-by-row inside savepoints) ───────────────
+                for chunk_start in range(0, len(to_update), CHUNK_UPDATE):
+                    chunk = to_update[chunk_start: chunk_start + CHUNK_UPDATE]
+                    for data_item, existing, pdata in chunk:
+                        sp = f'upd_{company.id}_{existing.id}'
                         try:
-                            savepoint_name = f'company_{company.id}_product_{product_code}'
-                            env.cr.execute(f'SAVEPOINT {savepoint_name}')
-
-                            # Cek apakah product sudah ada (termasuk yang sudah diarchive)
-                            existing_product = env['product.template'].sudo().search([
-                                ('default_code', '=', product_code),
-                                ('company_id', '=', company.id),
-                                '|',
-                                ('active', '=', True),
-                                ('active', '=', False),
-                            ], limit=1)
-
-                            # Cek kategori
-                            category_name = data_item.get('category_name')
-                            category_id = False
-                            if category_name:
-                                category = env['product.category'].sudo().search([
-                                    ('complete_name', '=', category_name),
-                                ], limit=1)
-                                category_id = category.id if category else False
-
-                            # UOM - Support string name
-                            uom_id = data_item.get('uom_id', 1)
-                            if isinstance(uom_id, str):
-                                uom_id = env['uom.uom'].get_uom_id_from_identifier(uom_id)
-                                if not uom_id:
-                                    raise ValueError(f"UOM '{uom_id}' not found")
-
-                            uom_po_id = data_item.get('uom_po_id', 1)
-                            if isinstance(uom_po_id, str):
-                                uom_po_id = env['uom.uom'].get_uom_id_from_identifier(uom_po_id)
-                                if not uom_po_id:
-                                    raise ValueError(f"UOM PO '{uom_po_id}' not found")
-
-                            # POS Category
-                            pos_categ_command = []
-                            pos_categ_data = data_item.get('pos_categ_ids', data_item.get('pos_categ_id', []))
-                            if not isinstance(pos_categ_data, list):
-                                pos_categ_data = [pos_categ_data]
-
-                            for categ_item in pos_categ_data:
-                                if isinstance(categ_item, str):
-                                    pos_category = env['pos.category'].sudo().search([
-                                        ('name', '=', categ_item),
-                                    ], limit=1)
-                                    if pos_category:
-                                        pos_categ_command.append((4, pos_category.id))
-                                elif isinstance(categ_item, int):
-                                    pos_category = env['pos.category'].sudo().search([
-                                        ('id', '=', categ_item),
-                                    ], limit=1)
-                                    if pos_category:
-                                        pos_categ_command.append((4, categ_item))
-
-                            # Pajak
-                            tax_command = []
-                            tax_names = data_item.get('taxes_names', data_item.get('taxes_name', []))
-                            if not isinstance(tax_names, list):
-                                tax_names = [tax_names]
-                            for tax_name in tax_names:
-                                tax = env['account.tax'].sudo().search([
-                                    ('name', '=', tax_name),
-                                    '|',
-                                    ('company_id', '=', company.id),
-                                    ('company_id', '=', False)
-                                ], limit=1)
-                                if tax:
-                                    tax_command.append((4, tax.id))
-
-                            # Data produk
-                            cost = data_item.get('standard_price', data_item.get('cost', 0.0))
-                            product_data = {
-                                'name': data_item.get('product_name'),
-                                'active': active,
-                                'default_code': product_code,
-                                'detailed_type': data_item.get('product_type', 'product'),
-                                'invoice_policy': data_item.get('invoice_policy', 'order'),
-                                'create_date': data_item.get('create_date'),
-                                'list_price': data_item.get('sales_price', 0.0),
-                                'standard_price': cost,
-                                'uom_id': uom_id,
-                                'uom_po_id': uom_po_id,
-                                'pos_categ_ids': [(6, 0, [x[1] for x in pos_categ_command])] if pos_categ_command else False,
-                                'categ_id': category_id,
-                                'taxes_id': [(6, 0, [x[1] for x in tax_command])] if tax_command else False,
-                                'available_in_pos': data_item.get('available_in_pos', True),
-                                'image_1920': data_item.get('image_1920'),
-                                'barcode': data_item.get('barcode'),
-                                'vit_sub_div': data_item.get('vit_sub_div'),
-                                'vit_item_kel': data_item.get('vit_item_kel'),
-                                'vit_item_type': data_item.get('vit_item_type'),
-                                'brand': data_item.get('vit_item_brand'),
-                                'gm_sub_category': data_item.get('gm_sub_category'),
-                                'gm_class': data_item.get('gm_class'),
-                                'gm_manufacturer': data_item.get('gm_manufacturer'),
-                                'gm_is_fixed_price': gm_is_fixed_price,
-                                'company_id': company.id,
-                            }
-
-                            if existing_product:
-                                # ✅ Force update UoM via context, bypass constraint stock moves
-                                existing_product.with_context(force_uom_update=True).write(product_data)
-                                updated.append({
-                                    'id': existing_product.id,
-                                    'product_code': existing_product.default_code,
-                                    'name': existing_product.name,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'list_price': existing_product.list_price,
-                                    'active': existing_product.active,
-                                    'gm_is_fixed_price': existing_product.gm_is_fixed_price,
-                                    "uom_id": existing_product.uom_id.id,
-                                    "uom_po_id": existing_product.uom_po_id.id,
-                                    'action': 'archived' if not existing_product.active else 'updated'
-                                })
-                                
-                            else:
-                                # Create new product
-                                product_data['create_uid'] = uid
-                                product = env['product.template'].sudo().create(product_data)
-                                created.append({
-                                    'id': product.id,
-                                    'product_code': product.default_code,
-                                    'name': product.name,
-                                    'company_id': company.id,
-                                    'company_name': company.name,
-                                    'list_price': product.list_price,
-                                    'active': product.active,
-                                    'gm_is_fixed_price': product.gm_is_fixed_price,
-                                    'action': 'created'
-                                })
-
-                            # Release savepoint if successful
-                            env.cr.execute(f'RELEASE SAVEPOINT {savepoint_name}')
-
-                        except Exception as e:
-                            try:
-                                env.cr.execute(f'ROLLBACK TO SAVEPOINT {savepoint_name}')
-                            except:
-                                pass
-
-                            failed.append({
-                                'data': data_item,
-                                'company_id': company.id,
-                                'company_name': company.name,
-                                'message': f"Error: {str(e)}",
-                                'id': None
+                            env.cr.execute(f'SAVEPOINT "{sp}"')
+                            existing.with_context(force_uom_update=True).write(pdata)
+                            env.cr.execute(f'RELEASE SAVEPOINT "{sp}"')
+                            updated.append({
+                                'id':              existing.id,
+                                'product_code':    existing.default_code,
+                                'name':            existing.name,
+                                'company_id':      company.id,
+                                'company_name':    company.name,
+                                'list_price':      existing.list_price,
+                                'active':          existing.active,
+                                'gm_is_fixed_price': existing.gm_is_fixed_price,
+                                'uom_id':          existing.uom_id.id,
+                                'uom_po_id':       existing.uom_po_id.id,
+                                'action': 'archived' if not existing.active else 'updated',
                             })
-
-                except Exception as e:
-                    failed.append({
-                        'data': data_item,
-                        'company_id': None,
-                        'company_name': None,
-                        'message': f"Error: {str(e)}",
-                        'id': None
-                    })
-
-            # Commit transaction
+                        except Exception as e:
+                            _rollback(env, sp)
+                            failed.append(_fail(data_item, company, f'Update error: {e}'))
+ 
+                # ── CHUNK CREATE (bulk INSERT per chunk, fallback to single) ──
+                for chunk_start in range(0, len(to_create), CHUNK_CREATE):
+                    chunk = to_create[chunk_start: chunk_start + CHUNK_CREATE]
+                    sp = f'bulk_create_{company.id}_{chunk_start}'
+                    try:
+                        env.cr.execute(f'SAVEPOINT "{sp}"')
+                        products = env['product.template'].sudo().create(
+                            [pdata for _, pdata in chunk]
+                        )
+                        env.cr.execute(f'RELEASE SAVEPOINT "{sp}"')
+                        for product, (data_item, _) in zip(products, chunk):
+                            created.append(_created_row(product, company))
+                    except Exception as bulk_err:
+                        _rollback(env, sp)
+                        _logger.warning(
+                            'Bulk create failed for company=%s chunk=%s, falling back to single. err=%s',
+                            company.id, chunk_start, bulk_err
+                        )
+                        # Fallback: one-by-one to preserve as many records as possible
+                        for data_item, pdata in chunk:
+                            code = pdata.get('default_code', 'x')
+                            sp2 = f'single_create_{company.id}_{code}'
+                            try:
+                                env.cr.execute(f'SAVEPOINT "{sp2}"')
+                                product = env['product.template'].sudo().create(pdata)
+                                env.cr.execute(f'RELEASE SAVEPOINT "{sp2}"')
+                                created.append(_created_row(product, company))
+                            except Exception as e2:
+                                _rollback(env, sp2)
+                                failed.append(_fail(data_item, company, f'Create error: {e2}'))
+ 
             env.cr.commit()
-
+ 
+            total = len(created) + len(updated) + len(failed)
             return {
-                'code': 200 if not failed else 207,
+                'code':   200 if not failed else 207,
                 'status': 'success' if not failed else 'partial_success',
-                'total_companies_processed': len(companies),
+                'total_items_received':       len(items),
+                'total_companies_processed':  len(companies),
+                'total_processed':            total,
+                'created_count':              len(created),
+                'updated_count':              len(updated),
+                'failed_count':               len(failed),
                 'created_items': created,
                 'updated_items': updated,
-                'failed_items': failed
+                'failed_items':  failed,
             }
-
+ 
         except Exception as e:
             try:
                 request.env.cr.rollback()
-            except:
+            except Exception:
                 pass
-            _logger.error(f"Failed to process items: {str(e)}")
+            _logger.error('Failed to process master_item: %s', e, exc_info=True)
             return {
-                'status': 'Failed',
-                'code': 500,
-                'message': f"Failed to process items: {str(e)}"
+                'status':  'Failed',
+                'code':    500,
+                'message': f'Failed to process items: {e}',
             }
+ 
+ 
+# ── Small helpers (module-level to avoid closure overhead in loops) ──────────
+ 
+def _fail(data_item, company, message):
+    return {
+        'data':         data_item,
+        'company_id':   company.id,
+        'company_name': company.name,
+        'message':      message,
+        'id':           None,
+    }
+ 
+ 
+def _created_row(product, company):
+    return {
+        'id':              product.id,
+        'product_code':    product.default_code,
+        'name':            product.name,
+        'company_id':      company.id,
+        'company_name':    company.name,
+        'list_price':      product.list_price,
+        'active':          product.active,
+        'gm_is_fixed_price': product.gm_is_fixed_price,
+        'action':          'created',
+    }
+ 
+ 
+def _rollback(env, sp):
+    try:
+        env.cr.execute(f'ROLLBACK TO SAVEPOINT "{sp}"')
+    except Exception:
+        pass
 
 
-import logging
-from datetime import datetime
-from odoo import http, _
-from odoo.http import request
-
-_logger = logging.getLogger(__name__)
-
+# =========================================================
+# MASTER PRICELIST API
+# =========================================================
 class POSTMasterPricelist(http.Controller):
-
+ 
     @http.route('/api/master_pricelist', type='json', auth='none', methods=['POST'], csrf=False)
     def post_pricelist(self, **kw):
-        """
-        Struktur payload (product-centric):
-        {
-            "items": [
-                {
-                    "product_code": "0001360",
-                    "quantity": 1,
-                    "date_start": null,
-                    "date_end": null,
-                    "prices": [
-                        {
-                            "gm_code": "GM001",                 // WAJIB
-                            "pricelist_name": "Price List TEST 1",
-                            "currency_id": 12,
-                            "conditions": "1_product",
-                            "compute_price": "fixed",
-                            "fixed_price": 20000,
-                            "percent_price": 0,
-                            "active": false                     // untuk archive
-                        }
-                    ]
-                }
-            ]
-        }
-        """
+ 
+        # --------------------------------------------------
+        # AUTH
+        # --------------------------------------------------
         try:
-            # AUTH
-            config = request.env['setting.config'].sudo().search(
-                [('vit_config_server', '=', 'mc')], limit=1
-            )
-            if not config:
-                return {'status': 'Failed', 'code': 500, 'message': 'Configuration not found.'}
-
-            uid = request.session.authenticate(
-                request.session.db,
-                config.vit_config_username,
-                config.vit_config_password_api
-            )
-            if not uid:
-                return {'status': 'Failed', 'code': 401, 'message': 'Authentication failed.'}
-
-            env = request.env(
-                user=request.env.ref('base.user_admin').id,
-                context={
-                    'tracking_disable': True,
-                    'mail_notrack': True,
-                    'mail_activity_automation_skip': True,
-                    'recompute': False,
-                    'no_recompute': True,
-                }
-            )
-
-            companies = env['res.company'].sudo().search([('active', '=', True)])
-            if not companies:
-                return {'status': 'Failed', 'code': 404, 'message': 'No active companies found.'}
-            company_ids = companies.ids
-
-            data = request.get_json_data()
+            check_authorization()
+            env = get_authenticated_env('mc')
+        except Exception as e:
+            return {'code': 401, 'status': 'Failed', 'message': str(e)}
+ 
+        start_total = time.time()
+        _logger.info("START pricelist API (optimized v2)")
+ 
+        try:
+            Pricelist     = env['product.pricelist']
+            PricelistItem = env['product.pricelist.item']
+            Product       = env['product.product']
+            Currency      = env['res.currency']
+            Company       = env['res.company']
+ 
+            data  = request.get_json_data()
             items = data.get('items', [])
             if not isinstance(items, list):
-                items = [data]
-
-            created, updated, failed = [], [], []
-
-            # Kumpulkan semua product_code, currency_id, gm_code
+                items = [items]
+            if not items:
+                return {'code': 200, 'status': 'success', 'message': 'No items'}
+ 
+            companies      = Company.sudo().search([('active', '=', True)])
+            company_by_id  = {c.id: c for c in companies}
+            company_ids    = companies.ids
+ 
+            # -----------------------------------------------
+            # LANGKAH 1: Kumpulkan nilai unik dari payload
+            # -----------------------------------------------
             all_product_codes = set()
-            all_currency_ids = set()
-            all_gm_codes = set()
-
-            for item in items:
-                if item.get('product_code'):
-                    all_product_codes.add(item['product_code'])
-                for price in item.get('prices', []):
+            all_currency_ids  = set()
+            all_gm_codes      = set()
+ 
+            for it in items:
+                if it.get('product_code'):
+                    all_product_codes.add(it['product_code'])
+                for price in it.get('prices', []):
                     if price.get('gm_code'):
                         all_gm_codes.add(price['gm_code'])
                     if price.get('currency_id'):
                         all_currency_ids.add(price['currency_id'])
-
-            # Product map
-            all_products_rs = env['product.product'].sudo().search([
-                ('default_code', 'in', list(all_product_codes)),
-                '|',
-                ('company_id', 'in', company_ids),
-                ('company_id', '=', False),
-            ])
+ 
+            if not all_gm_codes:
+                return {'code': 400, 'status': 'Failed',
+                        'message': 'No gm_code provided for pricelist in any item.'}
+ 
+            # -----------------------------------------------
+            # LANGKAH 2: Preload produk
+            # (filter company agar sesuai kebutuhan multi-company)
+            # -----------------------------------------------
+            # product_map: (product_code, company_id) -> product_tmpl_id
+            # Untuk produk dengan company_id=False juga disimpan sebagai fallback
             product_map = {}
-            for p in all_products_rs:
-                code = p.default_code
-                cid = p.company_id.id or False
-                product_map[(code, cid)] = p.product_tmpl_id.id
-
-            def _get_tmpl_id(code, company_id):
-                return product_map.get((code, company_id)) or product_map.get((code, False))
-
-            # Currency validation
-            valid_currencies = set(
-                env['res.currency'].sudo().browse(list(all_currency_ids))
-                .filtered('active').ids
-            ) if all_currency_ids else set()
-
-            # Existing pricelists berdasarkan gm_code (termasuk archived)
-            existing_rs = env['product.pricelist'].sudo().with_context(active_test=False).search([
+            codes_list  = list(all_product_codes)
+ 
+            for i in range(0, len(codes_list), PRODUCT_SEARCH_CHUNK):
+                chunk    = codes_list[i:i + PRODUCT_SEARCH_CHUNK]
+                products = Product.sudo().search([
+                    ('default_code', 'in', chunk),
+                    '|',
+                    ('company_id', 'in', company_ids),
+                    ('company_id', '=', False)
+                ])
+                for p in products:
+                    cid = p.company_id.id or False
+                    product_map[(p.default_code, cid)] = p.product_tmpl_id.id
+ 
+            def get_tmpl_id(product_code, company_id):
+                """Cari tmpl_id: prioritas company spesifik, fallback ke global (False)."""
+                return (
+                    product_map.get((product_code, company_id))
+                    or product_map.get((product_code, False))
+                )
+ 
+            _logger.info(f"product_map entries: {len(product_map)}")
+ 
+            # -----------------------------------------------
+            # LANGKAH 3: Preload pricelist berdasarkan gm_code
+            # -----------------------------------------------
+            existing_pl_map = {}  # (gm_code, company_id) -> pricelist record
+            existing_pl_recs = Pricelist.sudo().search([
                 ('gm_code', 'in', list(all_gm_codes)),
-                ('company_id', 'in', company_ids),
+                ('company_id', 'in', company_ids)
             ])
-            existing_rs.mapped('item_ids.product_tmpl_id')
-            existing_map = {
-                (pl.gm_code, pl.company_id.id): pl for pl in existing_rs
-            }
-
-            # Kumpulkan operasi per (gm_code, company)
-            pricelist_ops = {}
-
-            for item in items:
-                product_code = item.get('product_code')
+            for pl in existing_pl_recs:
+                existing_pl_map[(pl.gm_code, pl.company_id.id)] = pl
+ 
+            _logger.info(f"Existing pricelists found: {len(existing_pl_map)}")
+ 
+            # -----------------------------------------------
+            # LANGKAH 4: Validasi currency
+            # -----------------------------------------------
+            valid_currencies = set(
+                Currency.sudo().browse(list(all_currency_ids))
+                .filtered('active').ids
+            )
+ 
+            # -----------------------------------------------
+            # LANGKAH 5: Bangun pricelist_data
+            # group by (gm_code, company_id)
+            # -----------------------------------------------
+            pricelist_data  = {}   # (gm_code, cid) -> dict
+            stats_not_found = {}
+ 
+            for it in items:
+                product_code = it.get('product_code')
                 if not product_code:
-                    failed.append({'product_code': None, 'message': 'Missing product_code'})
                     continue
-
-                prices = item.get('prices', [])
+                prices = it.get('prices', [])
                 if not prices:
-                    failed.append({'product_code': product_code, 'message': 'No prices provided'})
                     continue
-
-                date_start = item.get('date_start')
-                date_end = item.get('date_end')
-                try:
-                    if date_start:
-                        date_start = datetime.strptime(date_start.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    if date_end:
-                        date_end = datetime.strptime(date_end.split('.')[0], '%Y-%m-%d %H:%M:%S')
-                    if date_start and date_end and date_start > date_end:
-                        failed.append({'product_code': product_code, 'message': 'Invalid date range'})
-                        continue
-                except ValueError as e:
-                    failed.append({'product_code': product_code, 'message': f"Invalid date format: {e}"})
+ 
+                quantity   = it.get('quantity', 1)
+                date_start = parse_date(it.get('date_start'))
+                date_end   = parse_date(it.get('date_end'))
+ 
+                # Skip jika tanggal tidak valid
+                if date_start and date_end and date_start > date_end:
                     continue
-
-                quantity = item.get('quantity', 1)
-
+ 
                 for price in prices:
-                    gm_code = price.get('gm_code')
-                    if not gm_code:
-                        failed.append({'product_code': product_code, 'message': 'Missing gm_code in prices entry'})
-                        continue
-
-                    pricelist_name = price.get('pricelist_name') or gm_code
+                    gm_code     = price.get('gm_code')
                     currency_id = price.get('currency_id')
-                    compute_price = price.get('compute_price', 'fixed')
-                    conditions = price.get('conditions', '1_product')
-                    active = price.get('active')  # bisa None, True, False
-
-                    if not currency_id:
-                        failed.append({'product_code': product_code, 'gm_code': gm_code, 'message': 'Missing currency_id'})
+                    pl_name     = price.get('pricelist_name') or gm_code
+ 
+                    if not gm_code or not currency_id or currency_id not in valid_currencies:
                         continue
-                    if currency_id not in valid_currencies:
-                        failed.append({'product_code': product_code, 'gm_code': gm_code, 'message': f'Currency ID {currency_id} not found'})
-                        continue
-                    if compute_price == 'percentage' and price.get('percent_price') is None:
-                        failed.append({'product_code': product_code, 'gm_code': gm_code, 'message': 'percent_price required'})
-                        continue
-                    if compute_price == 'fixed' and price.get('fixed_price') is None:
-                        failed.append({'product_code': product_code, 'gm_code': gm_code, 'message': 'fixed_price required'})
-                        continue
-
+ 
                     line_vals = {
-                        'applied_on': conditions,
-                        'compute_price': compute_price,
-                        'percent_price': price.get('percent_price', 0),
-                        'fixed_price': price.get('fixed_price', 0),
-                        'min_quantity': quantity,
-                        'date_start': date_start,
-                        'date_end': date_end,
+                        'applied_on':    price.get('conditions', '1_product'),
+                        'compute_price': price.get('compute_price', 'fixed'),
+                        'fixed_price':   price.get('fixed_price', 0.0),
+                        'percent_price': price.get('percent_price', 0.0),
+                        'min_quantity':  quantity,
+                        'date_start':    date_start,
+                        'date_end':      date_end,
+                        'price_discount':   price.get('price_discount', 0.0),
+                        'price_surcharge':  price.get('price_surcharge', 0.0),
+                        'price_round':      price.get('price_round', 0.0),
+                        'price_min_margin': price.get('price_min_margin', 0.0),
+                        'price_max_margin': price.get('price_max_margin', 0.0),
                     }
-
+ 
                     for company in companies:
-                        cid = company.id
-                        op_key = (gm_code, cid)
-                        if op_key not in pricelist_ops:
-                            pricelist_ops[op_key] = {
-                                'gm_code': gm_code,
-                                'pricelist_name': pricelist_name,
-                                'currency_id': currency_id,
-                                'company': company,
-                                'active': active,
-                                'lines': [],
+                        tmpl_id = get_tmpl_id(product_code, company.id)
+                        if not tmpl_id:
+                            key_nf = (product_code, company.id)
+                            stats_not_found[key_nf] = stats_not_found.get(key_nf, 0) + 1
+                            continue
+ 
+                        key = (gm_code, company.id)
+                        if key not in pricelist_data:
+                            pricelist_data[key] = {
+                                'company_id':   company.id,
+                                'company_name': company.name,
+                                'currency_id':  currency_id,
+                                'name':         pl_name,
+                                'gm_code':      gm_code,
+                                'active':       price.get('active', True),
+                                'line_vals_map': {}   # tmpl_id -> line_vals
                             }
-                        else:
-                            # timpa data terakhir untuk header (currency, name, active)
-                            pricelist_ops[op_key]['currency_id'] = currency_id
-                            pricelist_ops[op_key]['pricelist_name'] = pricelist_name
-                            if active is not None:
-                                pricelist_ops[op_key]['active'] = active
-                        pricelist_ops[op_key]['lines'].append((product_code, line_vals.copy()))
-
-            # Resolve tmpl_id dan pisahkan create/update
-            write_ops = []
-            create_batch = []
-
-            for op_key, op in pricelist_ops.items():
-                gm_code = op['gm_code']
-                pricelist_name = op['pricelist_name']
-                currency_id = op['currency_id']
-                company = op['company']
-                cid = company.id
-                active = op.get('active')  # bisa None
-
-                resolved_lines = []
-                missing_codes = []
-                for (product_code, line_vals) in op['lines']:
-                    tmpl_id = _get_tmpl_id(product_code, cid)
-                    if not tmpl_id:
-                        missing_codes.append(product_code)
-                        continue
-                    resolved_lines.append((tmpl_id, line_vals))
-
-                if missing_codes:
-                    failed.append({
-                        'gm_code': gm_code,
-                        'company_id': cid,
-                        'company_name': company.name,
-                        'message': f"Products not found: {', '.join(missing_codes)}"
-                    })
-                    if not resolved_lines:
-                        continue
-
-                pricelist_data = {
-                    'gm_code': gm_code,
-                    'name': pricelist_name,
-                    'currency_id': currency_id,
-                    'company_id': cid,
-                }
-                if active is not None:
-                    pricelist_data['active'] = active
-                else:
-                    pricelist_data['active'] = True   # default active
-
-                existing_pl = existing_map.get((gm_code, cid))
-
-                if existing_pl:
-                    # Update header
-                    header_vals = {}
-                    if existing_pl.currency_id.id != currency_id:
-                        header_vals['currency_id'] = currency_id
-                    if existing_pl.name != pricelist_name:
-                        header_vals['name'] = pricelist_name
-                    if active is not None and existing_pl.active != active:
-                        header_vals['active'] = active
-
-                    existing_lines_map = {line.product_tmpl_id.id: line for line in existing_pl.item_ids}
-                    upsert_commands = []
-                    for (tmpl_id, line_vals) in resolved_lines:
-                        full_vals = {**line_vals, 'product_tmpl_id': tmpl_id}
-                        existing_line = existing_lines_map.get(tmpl_id)
-                        if not existing_line:
-                            upsert_commands.append((0, 0, full_vals))
-                        else:
+ 
+                        # Update header jika ada perubahan
+                        pricelist_data[key]['currency_id'] = currency_id
+                        pricelist_data[key]['name']        = pl_name
+                        if price.get('active') is not None:
+                            pricelist_data[key]['active']  = price['active']
+ 
+                        # Simpan line_vals per tmpl_id (timpa jika duplikat)
+                        pricelist_data[key]['line_vals_map'][tmpl_id] = line_vals
+ 
+            if stats_not_found:
+                for (code, cid), cnt in list(stats_not_found.items())[:10]:
+                    _logger.warning(f"Product not found: code={code} company={cid} ({cnt}x)")
+ 
+            total_pairs = sum(len(d['line_vals_map']) for d in pricelist_data.values())
+            _logger.info(f"Pricelist groups: {len(pricelist_data)}, total product pairs: {total_pairs}")
+ 
+            # -----------------------------------------------
+            # LANGKAH 6: Preload SEMUA existing lines sekaligus
+            # (bukan per-pricelist di dalam loop — ini optimasi utama)
+            # -----------------------------------------------
+            all_pl_ids = list({
+                pl.id
+                for pl in existing_pl_map.values()
+                if (pl.gm_code, pl.company_id.id) in pricelist_data
+            })
+ 
+            # global_line_map: (pricelist_id, tmpl_id) -> line dict
+            global_line_map = {}
+            if all_pl_ids:
+                # Ambil semua tmpl_id yang relevan
+                all_relevant_tmpl_ids = set()
+                for d in pricelist_data.values():
+                    all_relevant_tmpl_ids.update(d['line_vals_map'].keys())
+ 
+                # Proses dalam chunk agar tidak query terlalu besar
+                tmpl_ids_list = list(all_relevant_tmpl_ids)
+                FIELDS = ['id', 'pricelist_id', 'product_tmpl_id',
+                          'fixed_price', 'percent_price', 'compute_price',
+                          'min_quantity', 'date_start', 'date_end', 'applied_on',
+                          'price_discount', 'price_surcharge', 'price_round',
+                          'price_min_margin', 'price_max_margin']
+ 
+                for i in range(0, len(tmpl_ids_list), PRODUCT_SEARCH_CHUNK):
+                    chunk_tmpl = tmpl_ids_list[i:i + PRODUCT_SEARCH_CHUNK]
+                    lines = PricelistItem.sudo().search_read(
+                        [
+                            ('pricelist_id', 'in', all_pl_ids),
+                            ('product_tmpl_id', 'in', chunk_tmpl)
+                        ],
+                        fields=FIELDS
+                    )
+                    for line in lines:
+                        pl_id   = line['pricelist_id'][0]
+                        tmpl_id = line['product_tmpl_id'][0]
+                        global_line_map[(pl_id, tmpl_id)] = line
+ 
+            _logger.info(f"Existing lines preloaded: {len(global_line_map)}")
+ 
+            # -----------------------------------------------
+            # LANGKAH 7: Proses setiap pricelist
+            # -----------------------------------------------
+            COMPARE_FIELDS = [
+                'fixed_price', 'percent_price', 'compute_price',
+                'min_quantity', 'date_start', 'date_end', 'applied_on',
+                'price_discount', 'price_surcharge', 'price_round',
+                'price_min_margin', 'price_max_margin'
+            ]
+ 
+            created_pl = []
+            updated_pl = []
+            failed_pl  = []
+ 
+            for (gm_code, company_id), data_pl in pricelist_data.items():
+                start_pl = time.time()
+                _logger.info(f"[{gm_code}] company {company_id} "
+                             f"({len(data_pl['line_vals_map'])} lines)")
+                try:
+                    # --- Upsert pricelist header ---
+                    pl_rec = existing_pl_map.get((gm_code, company_id))
+                    if not pl_rec:
+                        pl_rec = Pricelist.sudo().create({
+                            'name':        data_pl['name'],
+                            'gm_code':     gm_code,
+                            'currency_id': data_pl['currency_id'],
+                            'company_id':  company_id,
+                            'active':      data_pl['active'],
+                        })
+                        existing_pl_map[(gm_code, company_id)] = pl_rec
+                        created_pl.append({
+                            'id':         pl_rec.id,
+                            'gm_code':    gm_code,
+                            'name':       data_pl['name'],
+                            'company_id': company_id
+                        })
+                    else:
+                        header_vals = {}
+                        if pl_rec.currency_id.id != data_pl['currency_id']:
+                            header_vals['currency_id'] = data_pl['currency_id']
+                        if pl_rec.name != data_pl['name']:
+                            header_vals['name'] = data_pl['name']
+                        if pl_rec.active != data_pl['active']:
+                            header_vals['active'] = data_pl['active']
+                        if header_vals:
+                            pl_rec.write(header_vals)
+                        updated_pl.append({
+                            'id':         pl_rec.id,
+                            'gm_code':    gm_code,
+                            'name':       pl_rec.name,
+                            'company_id': company_id
+                        })
+ 
+                    # --- Pisahkan create vs update menggunakan global_line_map ---
+                    to_create = []
+                    to_update = []  # list of dict untuk bulk_update
+ 
+                    for tmpl_id, vals in data_pl['line_vals_map'].items():
+                        existing_line = global_line_map.get((pl_rec.id, tmpl_id))
+                        if existing_line:
+                            # Cek apakah ada field yang berubah
                             changed = any(
-                                existing_line[field] != val
-                                for field, val in full_vals.items()
-                                if field != 'product_tmpl_id'
+                                existing_line.get(f) != vals.get(f)
+                                for f in COMPARE_FIELDS
                             )
                             if changed:
-                                upsert_commands.append((1, existing_line.id, full_vals))
-
-                    if header_vals or upsert_commands:
-                        write_vals = {}
-                        if header_vals:
-                            write_vals.update(header_vals)
-                        if upsert_commands:
-                            write_vals['item_ids'] = upsert_commands
-                        write_ops.append((existing_pl, company, write_vals))
-                    else:
-                        updated.append({
-                            'id': existing_pl.id,
-                            'gm_code': existing_pl.gm_code,
-                            'name': existing_pl.name,
-                            'company_id': company.id,
-                            'company_name': company.name,
-                            'action': 'no_change',
-                        })
-                else:
-                    create_lines = [
-                        (0, 0, {**line_vals, 'product_tmpl_id': tmpl_id})
-                        for (tmpl_id, line_vals) in resolved_lines
-                    ]
-                    create_batch.append((company, {
-                        **pricelist_data,
-                        'item_ids': create_lines,
-                        'create_uid': uid,
-                    }))
-
-            # Eksekusi update
-            for rec, company, vals in write_ops:
-                try:
-                    with env.cr.savepoint():
-                        rec.sudo().write(vals)
-                    updated.append({
-                        'id': rec.id,
-                        'gm_code': rec.gm_code,
-                        'name': rec.name,
-                        'company_id': company.id,
-                        'company_name': company.name,
-                        'action': 'updated',
-                        'lines_updated': len(vals.get('item_ids', [])),
-                    })
+                                to_update.append({
+                                    'line_id': existing_line['id'],
+                                    **vals
+                                })
+                        else:
+                            to_create.append({
+                                'pricelist_id':    pl_rec.id,
+                                'product_tmpl_id': tmpl_id,
+                                **vals
+                            })
+ 
+                    _logger.info(f"  to_create={len(to_create)}, to_update={len(to_update)}")
+ 
+                    # --- Batch CREATE lines ---
+                    for i in range(0, len(to_create), LINE_CREATE_CHUNK):
+                        chunk = to_create[i:i + LINE_CREATE_CHUNK]
+                        if chunk:
+                            PricelistItem.sudo().create(chunk)
+ 
+                    # --- Bulk UPDATE lines (satu query untuk semua chunk) ---
+                    for i in range(0, len(to_update), LINE_UPDATE_CHUNK):
+                        chunk = to_update[i:i + LINE_UPDATE_CHUNK]
+                        if chunk:
+                            bulk_update_pricelist_lines(request.env.cr, chunk)
+                            # Invalidate cache ORM untuk line yang diupdate
+                            line_ids = [u['line_id'] for u in chunk]
+                            PricelistItem.sudo().browse(line_ids).invalidate_recordset()
+ 
+                    # Commit sekali per pricelist (bukan per chunk)
+                    request.env.cr.commit()
+                    _logger.info(f"  Done in {time.time() - start_pl:.2f}s")
+ 
                 except Exception as e:
-                    _logger.error(f"Pricelist update error [{rec.gm_code}]: {e}", exc_info=True)
-                    failed.append({
-                        'gm_code': rec.gm_code,
-                        'company_id': company.id,
-                        'company_name': company.name,
-                        'message': f"Update failed: {e}",
-                        'id': rec.id,
+                    _logger.error(
+                        f"Error pricelist {gm_code} company {company_id}: {e}",
+                        exc_info=True
+                    )
+                    failed_pl.append({
+                        'gm_code':    gm_code,
+                        'company_id': company_id,
+                        'message':    str(e)
                     })
-
-            # Eksekusi create
-            if create_batch:
-                try:
-                    with env.cr.savepoint():
-                        new_pls = env['product.pricelist'].sudo().create([pl_data for _, pl_data in create_batch])
-                    for (company, pl_data), pl in zip(create_batch, new_pls):
-                        created.append({
-                            'id': pl.id,
-                            'gm_code': pl.gm_code,
-                            'name': pl.name,
-                            'company_id': company.id,
-                            'company_name': company.name,
-                            'action': 'created',
-                            'lines_added': len(pl.item_ids),
-                        })
-                        existing_map[(pl.gm_code, company.id)] = pl
-                except Exception as e:
-                    _logger.error(f"Pricelist batch create error: {e}", exc_info=True)
-                    for company, pl_data in create_batch:
-                        failed.append({
-                            'gm_code': pl_data.get('gm_code'),
-                            'company_id': company.id,
-                            'company_name': company.name,
-                            'message': f"Batch create failed: {e}",
-                            'id': None,
-                        })
-
+                    request.env.cr.rollback()
+ 
+            # Final commit
+            request.env.cr.commit()
+ 
+            total_time = time.time() - start_total
+            _logger.info(
+                f"pricelist done in {total_time:.2f}s | "
+                f"created={len(created_pl)} | updated={len(updated_pl)} | "
+                f"failed={len(failed_pl)}"
+            )
+ 
             return {
-                'code': 200 if not failed else 207,
-                'status': 'success' if not failed else 'partial_success',
-                'total_companies_processed': len(companies),
-                'total_created': len(created),
-                'total_updated': len(updated),
-                'total_failed': len(failed),
-                'created_pricelists': created,
-                'updated_pricelists': updated,
-                'failed_pricelists': failed,
+                'code':   200 if not failed_pl else 207,
+                'status': 'success' if not failed_pl else 'partial_success',
+                'total_companies_processed':  len(companies),
+                'total_created_pricelists':   len(created_pl),
+                'total_updated_pricelists':   len(updated_pl),
+                'total_failed_pricelists':    len(failed_pl),
+                'created_pricelists':         created_pl,
+                'updated_pricelists':         updated_pl,
+                'failed_pricelists':          failed_pl,
+                'timing_seconds':             round(total_time, 3),
+                'avg_ms_per_pair': round((total_time / total_pairs * 1000), 2) if total_pairs else 0
             }
-
+ 
         except Exception as e:
-            request.env.cr.rollback()
-            _logger.error(f"Failed to process Pricelists: {e}", exc_info=True)
-            return {'status': 'Failed', 'code': 500, 'message': f"Failed to process Pricelists: {e}"}
+            try:
+                request.env.cr.rollback()
+            except Exception:
+                pass
+            _logger.error(f"Fatal error in pricelist API: {e}", exc_info=True)
+            return {'code': 500, 'status': 'Failed', 'message': str(e)}
         
 class POSTMasterUoM(http.Controller):
     @http.route('/api/master_uom', type='json', auth='none', methods=['POST'], csrf=False)
@@ -1637,31 +1824,23 @@ class POSTMasterCustomer(http.Controller):
                         })
                         continue
 
-                    # Validasi gm_bp_tax (REQUIRED)
+                    # Validasi gm_bp_tax (OPTIONAL)
                     gm_bp_tax_name = data_item.get('gm_bp_tax')
-                    if not gm_bp_tax_name:
-                        failed.append({
-                            'customer_code': customer_code,
-                            'company_id': company.id,
-                            'company_name': company_name,
-                            'message': 'Missing required field: gm_bp_tax',
-                            'id': None
-                        })
-                        continue
-
-                    bp_tax = env['account.tax'].sudo().search([
-                        ('name', '=', gm_bp_tax_name),
-                        ('company_id', '=', company.id)
-                    ], limit=1)
-                    if not bp_tax:
-                        failed.append({
-                            'customer_code': customer_code,
-                            'company_id': company.id,
-                            'company_name': company_name,
-                            'message': f"Tax '{gm_bp_tax_name}' not found for company '{company_name}'",
-                            'id': None
-                        })
-                        continue
+                    bp_tax = None
+                    if gm_bp_tax_name:
+                        bp_tax = env['account.tax'].sudo().search([
+                            ('name', '=', gm_bp_tax_name),
+                            ('company_id', '=', company.id)
+                        ], limit=1)
+                        if not bp_tax:
+                            failed.append({
+                                'customer_code': customer_code,
+                                'company_id': company.id,
+                                'company_name': company_name,
+                                'message': f"Tax '{gm_bp_tax_name}' not found for company '{company_name}'",
+                                'id': None
+                            })
+                            continue
 
                     # Validate customer group if enabled
                     if group_pricelist_enabled:
@@ -1757,7 +1936,7 @@ class POSTMasterCustomer(http.Controller):
                         'mobile': data_item.get('mobile'),
                         'website': data_item.get('website'),
                         'gm_bp_type': gm_bp_type,
-                        'gm_bp_tax': bp_tax.id,
+                        'gm_bp_tax': bp_tax.id if bp_tax else False,
                         'is_integrated': is_integrated,
                         'vat': data_item.get('tax_id'),
                         'l10n_id_pkp': data_item.get('l10n_id_pkp', False),

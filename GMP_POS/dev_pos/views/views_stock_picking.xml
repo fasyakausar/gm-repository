@@ -50,11 +50,6 @@
           <attribute name="invisible">True</attribute>
         </xpath>
 
-        <!-- Invisible button Return (data-hotkey='k' unik untuk button Return) -->
-        <xpath expr="//button[@data-hotkey='k']" position="attributes">
-          <attribute name="invisible">True</attribute>
-        </xpath>
-
       </field>
     </record>
 

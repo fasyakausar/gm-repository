@@ -33,14 +33,15 @@
     'company': 'Cybrosys Techno Solutions',
     'maintainer': 'Cybrosys Techno Solutions',
     'website': 'https://www.cybrosys.com',
-    'depends': ['base', 'point_of_sale'],
+    'depends': ['base', 'point_of_sale', 'stock'],
     'data': [
         'security/acces_pos_settings_security.xml',
         'security/ir.model.access.csv',
         'data/pos_receipt_design1_data.xml',
         'data/pos_receipt_design2_data.xml',
         'views/pos_receipt_views.xml',
-        'views/pos_config_views.xml'
+        'views/pos_config_views.xml',
+        'views/stock_picking_view.xml'
     ],
     'assets': {
         'point_of_sale._assets_pos': [

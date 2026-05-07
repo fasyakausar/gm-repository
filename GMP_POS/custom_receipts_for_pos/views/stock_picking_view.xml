@@ -1,0 +1,25 @@
+<odoo>
+  <data>
+
+    <!-- form view-->
+    <record model="ir.ui.view" id="view_stock_picking_form">
+      <field name="name">stock.picking.form</field>
+      <field name="model">stock.picking</field>
+      <field name="inherit_id" ref="stock.view_picking_form"/>
+      <field name="arch" type="xml">
+
+        <!-- Declare is_admin_menu_access so it's available as a modifier -->
+        <xpath expr="//field[@name='is_locked']" position="after">
+          <field name="is_admin_menu_access" invisible="1"/>
+        </xpath>
+
+        <!-- Invisible button Return (data-hotkey='k' unik untuk button Return) -->
+        <xpath expr="//button[@data-hotkey='k']" position="attributes">
+          <attribute name="invisible">not is_admin_menu_access</attribute>
+        </xpath>
+
+      </field>
+    </record>
+
+  </data>
+</odoo>

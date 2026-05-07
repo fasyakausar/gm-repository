@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <data noupdate="0">
 
-    <record id="group_admin_menu_access" model="res.groups">
-        <field name="name">Admin Menu Access</field>
-        <field name="comment">
-            User dalam group ini memiliki hak penuh untuk membaca DAN mengedit
-            seluruh konfigurasi POS (receipt design, logo, manager validation, dsb).
-            User di luar group ini hanya dapat melihat (read-only).
-        </field>
-    </record>
+        <record id="group_admin_menu_access" model="res.groups">
+            <field name="name">Admin Menu Access</field>
+            <field name="comment">
+                User dalam group ini memiliki hak penuh untuk membaca DAN mengedit
+                seluruh konfigurasi POS (receipt design, logo, manager validation, dsb).
+                User di luar group ini hanya dapat melihat (read-only).
+            </field>
+        </record>
+    </data>
 </odoo>
