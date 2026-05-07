@@ -10,15 +10,20 @@ class ResCompany(models.Model):
     @api.model
     def create(self, vals):
         company = super().create(vals)
-        # Setelah company dibuat, pastikan partner-nya punya company_id = company ini
         if company.partner_id:
-            company.partner_id.sudo().write({'company_id': company.id})
-            # Fix semua child/address dari partner tersebut
+            company.partner_id.with_context(
+                skip_company_check=True,
+                skip_integrated_logic=True,
+            ).sudo().write({'company_id': company.id})
+
             children = self.env['res.partner'].sudo().search([
                 ('parent_id', '=', company.partner_id.id),
             ])
             if children:
-                children.sudo().write({'company_id': company.id})
+                children.with_context(
+                    skip_company_check=True,
+                    skip_integrated_logic=True,
+                ).sudo().write({'company_id': company.id})
         return company
 
 
@@ -71,31 +76,37 @@ class ResPartner(models.Model):
                 ('company_id', '!=', partner.company_id.id),
             ])
             if children:
-                children.sudo().write({'company_id': partner.company_id.id})
+                children.with_context(
+                    skip_company_check=True,
+                    skip_integrated_logic=True,
+                ).sudo().write({'company_id': partner.company_id.id})
 
-    # ✅ TAMBAHAN: Override _check_company untuk bypass error incompatible company
     def _check_company(self, fnames=None):
-        """ Override untuk mencegah error incompatible companies saat create company baru """
+        """Override untuk mencegah error incompatible companies saat create company baru"""
+        if self.env.context.get('skip_company_check'):
+            return
         try:
             return super()._check_company(fnames=fnames)
         except UserError as e:
-            # Jika error terkait incompatible company pada partner baru,
-            # coba fix dulu lalu skip error
             if 'Incompatible companies' in str(e):
                 self._fix_child_company_id()
-                # Coba fix company_id pada diri sendiri jika is_company
                 for partner in self:
                     if partner.is_company and not partner.company_id:
-                        partner.sudo().write({'company_id': partner.id})
-                return  # Bypass error setelah fix
-            raise  # Re-raise error lain yang tidak terkait
+                        partner.with_context(
+                            skip_company_check=True,
+                            skip_integrated_logic=True,
+                        ).sudo().write({'company_id': partner.id})
+                return
+            raise
 
     def write(self, vals):
-        if vals.get('allow_integrated_override'):
-            vals['is_integrated'] = True
-            del vals['allow_integrated_override']
-        else:
-            vals['is_integrated'] = False
+        # Logic is_integrated hanya dijalankan jika bukan dari proses internal system
+        if not self.env.context.get('skip_integrated_logic'):
+            if vals.get('allow_integrated_override'):
+                vals['is_integrated'] = True
+                del vals['allow_integrated_override']
+            else:
+                vals['is_integrated'] = False
 
         if 'vit_customer_group' in vals and vals['vit_customer_group']:
             customer_group = self.env['customer.group'].browse(vals['vit_customer_group'])
@@ -194,9 +205,7 @@ class ResPartner(models.Model):
 
     @api.model
     def create(self, vals):
-        # ✅ Jika partner adalah company (is_company=True), pastikan company_id konsisten
         if vals.get('is_company') and not vals.get('company_id'):
-            # Akan di-set setelah create, skip dulu agar tidak konflik
             pass
 
         if not vals.get('company_id'):
