@@ -10,17 +10,20 @@
                         <group string="Informasi Order">
                             <field name="order_id" readonly="1"/>
                             <field name="order_line_id"
-                                   domain="[('order_id', '=', order_id)]"
-                                   required="1"/>
+                                domain="[('order_id', '=', order_id)]"
+                                required="1"/>
                             <field name="product_id" readonly="1"/>
                             <field name="current_price" readonly="1"/>
+                        </group>
+                        <group string="Manager yang bertugas">
+                            <field name="manager_id" readonly="1" options="{'no_open': True, 'no_create': True}"/>
                         </group>
                         <group string="Harga Baru">
                             <field name="new_price" required="1"/>
                             <field name="pin"
-                                   password="True"
-                                   required="1"
-                                   placeholder="Masukkan PIN Manager"/>
+                                password="True"
+                                required="1"
+                                placeholder="Masukkan PIN Manager"/>
                         </group>
                     </group>
                     <group>
