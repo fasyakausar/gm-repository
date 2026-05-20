@@ -8,7 +8,7 @@
     'company': 'GM',
     'maintainer': 'GM',
     'website': "",
-    'depends': ['base', 'sale', 'stock', 'point_of_sale', 'account'],
+    'depends': ['base', 'sale', 'stock', 'point_of_sale', 'account', 'salesperson_pos_order_line'],
     'data': [
         'security/ir.model.access.csv',
         'views/sales_report_view.xml',

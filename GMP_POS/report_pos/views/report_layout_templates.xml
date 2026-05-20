@@ -54,11 +54,12 @@
                         <table class="table table-bordered table-sm mb-0">
                           <thead>
                             <tr class="table-light">
-                            <th style="width: 55%;">Produk</th>
+                            <th style="width: 45%;">Produk</th>
                             <th style="width: 5%;">Qty</th>
                             <th style="width: 10%;">Harga</th>
                             <th style="width: 8%;">Disc %</th>
                             <th style="width: 12%;">Subtotal</th>
+                            <th style="width: 20%;">Salesperson</th>
                           </tr>
                           </thead>
                           <tbody>
@@ -71,11 +72,13 @@
                                 <td class="text-end"><t t-esc="format_number(line.price_unit)"/></td>
                                 <td class="text-end"><t t-esc="line.discount"/></td>
                                 <td class="text-end"><t t-esc="format_number(line.price_subtotal_incl)"/></td>
+                                <td><t t-esc="line.user_id.name or ''"/></td>
                               </tr>
                             </t>
                             <tr>
                               <td colspan="4" class="text-end"><b>Total</b></td>
                               <td class="text-end"><b><t t-esc="format_number(order.amount_total)"/></b></td>
+                              <td></td>
                             </tr>
                           </tbody>
                         </table>
@@ -103,7 +106,7 @@
 
           <div class="o_portal_content table-responsive border-0 d-flex justify-content-center my-3 ">
             <div class="o_portal_html_view position-relative bg-white shadow overflow-hidden">
-              <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+              <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
               <h5 class="text-center">Laporan Penjualan</h5>
               <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 

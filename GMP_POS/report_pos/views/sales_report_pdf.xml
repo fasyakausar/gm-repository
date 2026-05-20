@@ -103,7 +103,7 @@
         <body>
 
             <div class="page">
-                <h4 class="text-center"><b>PT KEMANG KARSA</b></h4>
+                <h4 class="text-center"><b>PT GLOBAL MULTI PARTS</b></h4>
                 <h5 class="text-center">Laporan Penjualan</h5>
                 <p class="text-center">[ <t t-esc="date_from"/> - <t t-esc="date_to"/> ]</p>
 

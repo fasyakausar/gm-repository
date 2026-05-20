@@ -17,8 +17,8 @@ class AccountMove(models.Model):
     )
     gm_is_cancel = fields.Boolean(string="Cancel", readonly=True, default=False, tracking=True)
     gm_invoice_e_commerce = fields.Char(string="Invoice Tokopedia", default=False, tracking=True)
-    gm_po_customer = fields.Char(string="PO Customer")
-    gm_nota_manual = fields.Char(string="Nota Manual")
+    gm_po_customer = fields.Char(string="PO Customer", tracking=True)
+    gm_nota_manual = fields.Char(string="Nota Manual", tracking=True)
 
     customer_info = fields.Many2one(
         'res.company',

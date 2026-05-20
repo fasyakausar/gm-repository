@@ -12,38 +12,27 @@ class POSLoyaltyRPC(http.Controller):
         for current user/partner based on allowed_partner_ids, allowed_days, start_time, end_time.
         Also include rewards for those programs.
         """
-        # Ambil partner dari session / request context
         partner = request.env.user.partner_id
 
-        # Waktu sekarang dengan timezone server
         now_utc = datetime.now(pytz.UTC)
-        # Kalau ingin pakai timezone server lokal (pastikan configuration tz server)
         now = now_utc
 
-        # Hari sekarang e.g. 'mon', 'tue', ...
         weekday = now.strftime('%a').lower()[:3]
-
-        # Jam sekarang sebagai float
         current_hour = now.hour + now.minute/60.0
 
         LoyaltyProgram = request.env['loyalty.program'].sudo()
         LoyaltyReward = request.env['loyalty.reward'].sudo()
 
-        # Cari program yang aktif dan memenuhi kondisi
         programs = LoyaltyProgram.search([('active','=',True)])
         valid = []
         for prog in programs:
-            # cek partner membership
             if prog.allowed_partner_ids:
-                # partner harus punya kategori yang termasuk
                 partner_cat_ids = partner.category_id.ids if hasattr(partner, 'category_id') else []
                 if not set(partner_cat_ids).intersection(set(prog.allowed_partner_ids.ids)):
                     continue
-            # cek hari
             if prog.allowed_days:
                 if weekday not in prog.allowed_days:
                     continue
-            # cek waktu
             if (prog.start_time is not False and prog.start_time is not None) and (prog.end_time is not False and prog.end_time is not None):
                 st = prog.start_time
                 et = prog.end_time
@@ -51,17 +40,13 @@ class POSLoyaltyRPC(http.Controller):
                     if not (current_hour >= st and current_hour <= et):
                         continue
                 else:
-                    # wrap around midnight
                     if not (current_hour >= st or current_hour <= et):
                         continue
-            # jika lulus semua, ambil reward nya
             rewards = LoyaltyReward.search([('program_id','=',prog.id)])
-            # minimal fields
             valid.append({
                 'id': prog.id,
                 'name': prog.name,
                 'program_type': prog.program_type,
-                # tambahkan field lain jika perlu
                 'allowed_partner_ids': prog.allowed_partner_ids.ids,
                 'allowed_days': prog.allowed_days or [],
                 'start_time': prog.start_time,
@@ -97,11 +82,10 @@ class LoyaltyProgramController(http.Controller):
 
     @http.route('/loyalty/validate_program_access', type='json', auth='user', methods=['POST'], csrf=False)
     def validate_program_access(self, partner_id=None):
-        # Ambil data program loyalitas
         program_ids = request.env['loyalty.program'].search([])
 
         current_time = datetime.now()
-        current_day = current_time.strftime('%a').lower()  # mon, tue, etc.
+        current_day = current_time.strftime('%a').lower()
         current_time_float = current_time.hour + current_time.minute / 60
 
         result = []
@@ -109,12 +93,10 @@ class LoyaltyProgramController(http.Controller):
             valid = True
             error = False
 
-            # Cek apakah program memerlukan anggota
             if program.is_member and not partner_id:
                 valid = False
                 error = _("Program loyalitas ini hanya untuk anggota.")
 
-            # Cek kategori partner
             if program.allowed_partner_ids and partner_id:
                 partner = request.env['res.partner'].browse(partner_id)
                 category_ids = partner.category_id.ids
@@ -122,14 +104,12 @@ class LoyaltyProgramController(http.Controller):
                     valid = False
                     error = _("Program loyalitas hanya untuk kategori tertentu.")
 
-            # Cek hari yang diizinkan
             if program.allowed_days:
                 allowed_days = program.allowed_days.split(',')
                 if current_day not in allowed_days:
                     valid = False
                     error = _("Program tidak tersedia pada hari ini.")
 
-            # Cek waktu yang diizinkan
             if program.start_time and program.end_time:
                 start = program.start_time
                 end = program.end_time
@@ -149,6 +129,10 @@ class LoyaltyProgramController(http.Controller):
 
         return result
 
+
+# ============================================================
+# ✅ CONTROLLER YANG DIPERBAIKI
+# ============================================================
 class PosController(http.Controller):
     @http.route('/pos/log_cashier', type='json', auth="user")
     def log_cashier(self, employee_id, session_id):
@@ -169,13 +153,26 @@ class PosController(http.Controller):
                 'message': 'Tidak dapat login. Shift untuk kasir ini sudah ditutup pada sesi ini.'
             }
 
-        # Check if there's already a log
+        # ✅ FIX: tambahkan order + limit=1 supaya tidak "Expected singleton"
+        # walau ada data log 'opened' yang duplikat/basi untuk
+        # employee_id + session_id yang sama
         existing_log = CashierLog.search([
             ('employee_id', '=', employee_id),
             ('session_id', '=', session_id),
             ('state', '=', 'opened')
+        ], order='id desc', limit=1)
+
+        # ✅ FIX: otomatis tutup log 'opened' lain yang duplikat/basi
+        # agar tidak menumpuk dan tidak memicu error yang sama di kemudian hari
+        duplicate_logs = CashierLog.search([
+            ('employee_id', '=', employee_id),
+            ('session_id', '=', session_id),
+            ('state', '=', 'opened'),
+            ('id', '!=', existing_log.id if existing_log else 0),
         ])
-        
+        if duplicate_logs:
+            duplicate_logs.write({'state': 'closed'})
+
         log_id = existing_log.id if existing_log else None
         if not existing_log:
             new_log = CashierLog.create({
@@ -185,7 +182,7 @@ class PosController(http.Controller):
             })
             log_id = new_log.id
 
-        # ✅ Check if any EndShift for this cashier is already 'opened' or 'in_progress'
+        # Check if any EndShift for this cashier is already 'opened' or 'in_progress'
         existing_shift = EndShift.search([
             ('cashier_id', '=', employee_id),
             ('session_id', '=', session_id),
@@ -214,6 +211,7 @@ class PosController(http.Controller):
             'is_new_log': not existing_log,
         }
 
+
 class InventoryFocusController(http.Controller):
 
     @http.route('/inventory/trigger_focus', type='json', auth='user')
@@ -223,7 +221,7 @@ class InventoryFocusController(http.Controller):
         """
         record_id = kw.get('record_id')
         return {'focus_barcode': True, 'record_id': record_id}
-    
+
 class LoyaltyScheduleController(http.Controller):
 
     @http.route('/pos/loyalty/schedules', type='json', auth='user')
@@ -232,7 +230,7 @@ class LoyaltyScheduleController(http.Controller):
             [], ['program_id', 'days', 'time_start', 'time_end']
         )
         return schedules
-    
+
 class POSVirtualKeyboard(http.Controller):
 
     @http.route('/pos/open_virtual_keyboard', type='json', auth='user')
@@ -242,17 +240,3 @@ class POSVirtualKeyboard(http.Controller):
             return {"status": "ok"}
         except Exception as e:
             return {"error": str(e)}
-
-# class MultipleBarcodeController(http.Controller):
-#     # In your custom POS controller
-#     @http.route('/pos/resolve_barcode', type='json', auth='user')
-#     def resolve_barcode(self, barcode):
-#         entry = request.env['multiple.barcode'].sudo().search([('barcode', '=', barcode)], limit=1)
-#         if entry:
-#             return {
-#                 'product_id': entry.product_id.id,
-#                 'product_barcode': entry.barcode,
-#                 'to_weight': entry.to_weight,
-#             }
-#         return {}
-

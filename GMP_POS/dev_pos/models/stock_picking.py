@@ -22,6 +22,18 @@ class StockPicking(models.Model):
         ('ts_in', 'TSIN'),
     ], string="Transfer Type", compute="_compute_gm_type_transfer", store=True, tracking=True)
 
+    is_tsout_or_tsin = fields.Boolean(
+        string="Is TSOUT/TSIN",
+        compute="_compute_is_tsout_or_tsin",
+        store=False,
+    )
+
+    @api.depends('picking_type_id', 'picking_type_id.name')
+    def _compute_is_tsout_or_tsin(self):
+        for record in self:
+            name = record.picking_type_id.name or ''
+            record.is_tsout_or_tsin = 'TSOUT' in name or 'TSIN' in name
+
     def _get_ts_transit_location(self):
         """
         Ambil location_transit dari stock.warehouse berdasarkan target_location.

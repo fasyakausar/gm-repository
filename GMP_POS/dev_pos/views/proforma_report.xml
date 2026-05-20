@@ -102,8 +102,7 @@
                                 <tr>
                                     <td class="text-center" t-out="line_number"/>
                                     <td class="text-start">
-                                        <span t-field="line.product_id.name"/><br/>
-                                        <small><span t-field="line.name" t-options="{'widget': 'text'}"/></small>
+                                        <span t-field="line.name" t-options="{'widget': 'text'}"/>
                                     </td>
                                     <td class="text-center">
                                         <span t-field="line.product_uom_qty"/>

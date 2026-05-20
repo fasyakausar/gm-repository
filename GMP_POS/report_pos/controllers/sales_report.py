@@ -2,6 +2,7 @@ from odoo import models, fields, _, api, http
 from odoo.exceptions import UserError, ValidationError
 from odoo.http import request
 from datetime import datetime
+from decimal import Decimal, ROUND_HALF_UP
 
 class SalesReportDetailController(http.Controller):
 
@@ -21,7 +22,10 @@ class SalesReportDetailController(http.Controller):
         return None
     
     def format_number(self, number):
-        return f"{number:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
+        # Pemisah ribuan pakai koma (,) dan desimal pakai titik (.)
+        # Pembulatan fleksibel: pecahan < 0,50 dibulatkan ke bawah, >= 0,50 dibulatkan ke atas
+        rounded = Decimal(str(number)).quantize(Decimal('1'), rounding=ROUND_HALF_UP)
+        return f"{int(rounded):,}"
 
     @http.route('/my/sales/report/detail', type='http', auth='user', website=True)
     def portal_sales_report_detail(self, **kw):
