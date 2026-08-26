@@ -85,4 +85,27 @@
         </field>
     </record>
 
+    <record id="view_move_kanban_qty_on_hand" model="ir.ui.view">
+        <field name="name">stock.move.kanban.qty.on.hand</field>
+        <field name="model">stock.move</field>
+        <field name="inherit_id" ref="stock.view_move_kandan"/>
+        <field name="arch" type="xml">
+
+            <!-- Daftarkan field di kanban -->
+            <field name="location_dest_id" position="after">
+                <field name="qty_on_hand"/>
+                <field name="picking_type_code"/>
+            </field>
+
+            <!-- Tampilkan di card, hanya untuk outgoing -->
+            <xpath expr="//div[@invisible='is_inventory']/span" position="inside">
+                <br/>
+                <span invisible="picking_type_code != 'outgoing'">
+                    On Hand: <field name="qty_on_hand"/>
+                </span>
+            </xpath>
+
+        </field>
+    </record>
+
 </odoo>
