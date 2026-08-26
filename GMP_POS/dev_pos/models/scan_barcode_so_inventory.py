@@ -77,6 +77,11 @@ class StockPicking(models.Model):
     _inherit = 'stock.picking'
     
     barcode_input = fields.Char(string="Scan Barcode", readonly=False)
+
+    def action_scan_barcode(self):
+        for picking in self:
+            picking._onchange_barcode_input()
+        return True
     
     def _get_next_sequence(self):
         """Get the next highest sequence number"""

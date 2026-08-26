@@ -426,3 +426,9 @@ class StockMove(models.Model):
     _inherit = 'stock.move'
 
     vit_line_number_sap = fields.Integer(string='Line Number SAP')
+
+    picking_type_code = fields.Selection(
+        related='picking_id.picking_type_id.code',
+        string='Picking Type Code',
+        readonly=True,
+    )

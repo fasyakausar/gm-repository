@@ -117,6 +117,7 @@
             'dev_pos/static/src/js/button_generate_report.js',
             'dev_pos/static/src/js/sale_order_warehouse.js',
             'dev_pos/static/src/js/sale_order_wizard.js',
+            'dev_pos/static/src/js/barcode_scan_field.js',
         ],
     },
     'license': 'LGPL-3',
