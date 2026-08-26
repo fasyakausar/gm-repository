@@ -580,8 +580,8 @@ TMPL_SCALAR_FIELDS = [
     'available_in_pos',
     'vit_sub_div', 'vit_item_kel', 'vit_item_type', 'brand',
     'gm_sub_category', 'gm_class', 'gm_manufacturer', 'gm_is_fixed_price',
+    'old_item',
 ]
- 
 # Field yang ada di product_product (perlu update tabel kedua)
 PP_SCALAR_FIELDS = [
     'default_code', 'barcode', 'active',
@@ -867,6 +867,10 @@ class POSTMasterItem(http.Controller):
                     'gm_is_fixed_price': gm_is_fixed_price,
                     'company_id':        company_id,
                 }
+                if 'old_item' in data_item:
+                    old_item = data_item.get('old_item')
+                    data['old_item'] = str(old_item).strip() if old_item not in (None, False, '') else False
+
                 if create_uid is not None:
                     data['create_uid'] = create_uid
  
@@ -916,6 +920,7 @@ class POSTMasterItem(http.Controller):
                                 'company_name':    company.name,
                                 'list_price':      existing.list_price,
                                 'active':          existing.active,
+                                'old_item':        existing.old_item,
                                 'gm_is_fixed_price': existing.gm_is_fixed_price,
                                 'uom_id':          existing.uom_id.id,
                                 'uom_po_id':       existing.uom_po_id.id,
@@ -1022,6 +1027,7 @@ def _created_row(product, company):
         'company_name':    company.name,
         'list_price':      product.list_price,
         'active':          product.active,
+        'old_item':        product.old_item,
         'gm_is_fixed_price': product.gm_is_fixed_price,
         'action':          'created',
     }

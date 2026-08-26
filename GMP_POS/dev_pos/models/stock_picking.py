@@ -28,6 +28,17 @@ class StockPicking(models.Model):
         store=False,
     )
 
+    vit_hide_cancel_button = fields.Boolean(
+        string="Hide Cancel Button",
+        compute='_compute_vit_hide_cancel_button',
+    )
+
+    @api.depends_context('uid')
+    def _compute_vit_hide_cancel_button(self):
+        hide = self.env.user.has_group('dev_pos.group_hide_button_cancel')
+        for picking in self:
+            picking.vit_hide_cancel_button = hide
+
     @api.depends('picking_type_id', 'picking_type_id.name')
     def _compute_is_tsout_or_tsin(self):
         for record in self:
@@ -384,9 +395,9 @@ class StockPicking(models.Model):
             move_vals = {
                 'name': move.product_id.name,
                 'product_id': move.product_id.id,
-                'product_uom_qty': move.product_uom_qty,
+                'product_uom_qty': move.quantity,   # pakai qty aktual, bukan demand asal (yang sering 0)
                 'product_uom': move.product_uom.id,
-                'quantity': move.product_uom_qty,
+                'quantity': move.quantity,
                 'picking_id': new_picking.id,
                 'location_id': new_picking.location_id.id,
                 'location_dest_id': new_picking.location_dest_id.id,
@@ -426,3 +437,9 @@ class StockMove(models.Model):
     _inherit = 'stock.move'
 
     vit_line_number_sap = fields.Integer(string='Line Number SAP')
+
+    picking_type_code = fields.Selection(
+        related='picking_id.picking_type_id.code',
+        string='Picking Type Code',
+        readonly=True,
+    )
