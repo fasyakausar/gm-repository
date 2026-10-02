@@ -580,8 +580,8 @@ TMPL_SCALAR_FIELDS = [
     'available_in_pos',
     'vit_sub_div', 'vit_item_kel', 'vit_item_type', 'brand',
     'gm_sub_category', 'gm_class', 'gm_manufacturer', 'gm_is_fixed_price',
+    'old_item',
 ]
- 
 # Field yang ada di product_product (perlu update tabel kedua)
 PP_SCALAR_FIELDS = [
     'default_code', 'barcode', 'active',
@@ -867,6 +867,10 @@ class POSTMasterItem(http.Controller):
                     'gm_is_fixed_price': gm_is_fixed_price,
                     'company_id':        company_id,
                 }
+                if 'old_item' in data_item:
+                    old_item = data_item.get('old_item')
+                    data['old_item'] = str(old_item).strip() if old_item not in (None, False, '') else False
+
                 if create_uid is not None:
                     data['create_uid'] = create_uid
  
@@ -916,6 +920,7 @@ class POSTMasterItem(http.Controller):
                                 'company_name':    company.name,
                                 'list_price':      existing.list_price,
                                 'active':          existing.active,
+                                'old_item':        existing.old_item,
                                 'gm_is_fixed_price': existing.gm_is_fixed_price,
                                 'uom_id':          existing.uom_id.id,
                                 'uom_po_id':       existing.uom_po_id.id,
@@ -1022,6 +1027,7 @@ def _created_row(product, company):
         'company_name':    company.name,
         'list_price':      product.list_price,
         'active':          product.active,
+        'old_item':        product.old_item,
         'gm_is_fixed_price': product.gm_is_fixed_price,
         'action':          'created',
     }
@@ -1764,27 +1770,15 @@ class POSTMasterCustomer(http.Controller):
     @http.route('/api/master_customer', type='json', auth='none', methods=['POST'], csrf=False)
     def post_master_customer(self, **kw):
         try:
-            # Authentication
-            config = request.env['setting.config'].sudo().search(
-                [('vit_config_server', '=', 'mc')], limit=1
-            )
-            if not config:
-                return {'status': 'Failed', 'code': 500, 'message': 'Configuration not found.'}
+            check_authorization()
+            env = get_authenticated_env('mc')
 
-            uid = request.session.authenticate(
-                request.session.db,
-                config.vit_config_username,
-                config.vit_config_password_api
-            )
-            if not uid:
-                return {'status': 'Failed', 'code': 401, 'message': 'Authentication failed.'}
+            companies = env['res.company'].sudo().search([('active', '=', True)])
+            if not companies:
+                return {'status': 'Failed', 'code': 404, 'message': 'No active companies found.'}
 
-            env = request.env(user=request.env.ref('base.user_admin').id)
-
-            # Check if customer group pricelist is enabled
             group_pricelist_enabled = is_customer_group_pricelist_enabled()
 
-            # Get JSON data
             json_data = request.get_json_data()
             items = json_data.get('items', [])
 
@@ -1995,7 +1989,7 @@ class POSTMasterCustomer(http.Controller):
                             'action': 'archived' if not existing.active else 'updated'
                         })
                     else:
-                        customer_vals['create_uid'] = uid
+                        customer_vals['create_uid'] = env.uid
                         customer = env['res.partner'].sudo().create(customer_vals)
                         created.append({
                             'id': customer.id,

@@ -8,6 +8,7 @@
       <field name="inherit_id" ref="product.product_template_form_view"/>
       <field name="arch" type="xml">
         <xpath expr="//field[@name='categ_id']" position="after">
+            <field name="old_item" readonly="1"/>
             <field name="vit_sub_div" readonly="1"/>
             <field name="vit_item_kel" readonly="1"/>
             <field name="vit_item_type" readonly="1"/>

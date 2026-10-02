@@ -28,6 +28,17 @@ class StockPicking(models.Model):
         store=False,
     )
 
+    vit_hide_cancel_button = fields.Boolean(
+        string="Hide Cancel Button",
+        compute='_compute_vit_hide_cancel_button',
+    )
+
+    @api.depends_context('uid')
+    def _compute_vit_hide_cancel_button(self):
+        hide = self.env.user.has_group('dev_pos.group_hide_button_cancel')
+        for picking in self:
+            picking.vit_hide_cancel_button = hide
+
     @api.depends('picking_type_id', 'picking_type_id.name')
     def _compute_is_tsout_or_tsin(self):
         for record in self:
