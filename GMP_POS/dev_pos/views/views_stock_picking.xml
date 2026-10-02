@@ -44,6 +44,16 @@
             <attribute name="readonly">state in ['assigned', 'done']</attribute>
         </field>
 
+         <xpath expr="//field[@name='origin']" position="after">
+            <field name="vit_hide_cancel_button" invisible="1"/>
+        </xpath>
+
+        <!-- Hide tombol Cancel untuk anggota grup "Button Cancel".
+             Kondisi bawaan Odoo 19 tetap dipertahankan. -->
+        <xpath expr="//button[@name='action_cancel']" position="attributes">
+            <attribute name="invisible">vit_hide_cancel_button or state not in ('assigned', 'confirmed', 'draft', 'waiting')</attribute>
+        </xpath>
+
         <xpath expr="//field[@name='is_integrated']" position="attributes">
           <attribute name="force_save">1</attribute>
           <attribute name="readonly">True</attribute>

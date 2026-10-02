@@ -104,6 +104,19 @@ class SaleOrder(models.Model):
         help="Total pesanan dibulatkan ke integer dengan aturan half-up "
              "(<,50 turun ; >=,50 naik)."
     )
+
+    is_admin_menu_access = fields.Boolean(
+        string='Is Admin Menu Access',
+        compute='_compute_is_admin_menu_access',
+        help='True jika user login termasuk group Admin Menu Access. '
+            'Dipakai di view untuk mengunci create/edit Sale Order Line.',
+    )
+
+    @api.depends_context('uid')
+    def _compute_is_admin_menu_access(self):
+        has_access = self.env.user.has_group('custom_receipts_for_pos.group_admin_menu_access')
+        for order in self:
+            order.is_admin_menu_access = has_access
  
     # Precision default untuk report: 0 = dibulatkan ke bilangan bulat rupiah.
     # Ganti ke angka lain (mis. 2) jika suatu saat perlu tampilkan desimal.

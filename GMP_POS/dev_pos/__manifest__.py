@@ -8,7 +8,7 @@
     'company': '',
     'maintainer': '',
     'website': "",
-    'depends': ['base', 'sale', 'stock', 'point_of_sale', 'account', 'mrp', 'loyalty', 'pos_loyalty', 'purchase', 'hr', 'l10n_id', 'l10n_id_efaktur', 'pos_sale'], #, 'l10n_id_efaktur_coretax'
+    'depends': ['base', 'sale', 'stock', 'point_of_sale', 'account', 'mrp', 'loyalty', 'pos_loyalty', 'purchase', 'hr', 'l10n_id', 'l10n_id_efaktur', 'pos_sale', 'custom_receipts_for_pos'], #, 'l10n_id_efaktur_coretax'
     'data': [
         # 'security/hr_security.xml',
         'security/return_approval_security.xml',

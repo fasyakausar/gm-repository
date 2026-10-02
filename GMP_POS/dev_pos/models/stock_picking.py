@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 import pytz
 from odoo import models, fields, api, SUPERUSER_ID
 from odoo.exceptions import UserError
+from odoo.tools import float_compare
 import random
 import logging
 
@@ -27,6 +28,30 @@ class StockPicking(models.Model):
         compute="_compute_is_tsout_or_tsin",
         store=False,
     )
+
+    vit_hide_cancel_button = fields.Boolean(
+        string="Hide Cancel Button",
+        compute='_compute_vit_hide_cancel_button',
+    )
+
+    is_admin_menu_access = fields.Boolean(
+        string="Is Admin Menu Access",
+        compute='_compute_is_admin_menu_access',
+        help="True jika user login termasuk group Admin Menu Access. "
+            "Dipakai di view untuk mengunci create/edit Stock Move.",
+    )
+
+    @api.depends_context('uid')
+    def _compute_is_admin_menu_access(self):
+        has_access = self.env.user.has_group('custom_receipts_for_pos.group_admin_menu_access')
+        for picking in self:
+            picking.is_admin_menu_access = has_access
+
+    @api.depends_context('uid')
+    def _compute_vit_hide_cancel_button(self):
+        hide = self.env.user.has_group('dev_pos.group_hide_button_cancel')
+        for picking in self:
+            picking.vit_hide_cancel_button = hide
 
     @api.depends('picking_type_id', 'picking_type_id.name')
     def _compute_is_tsout_or_tsin(self):
@@ -203,6 +228,37 @@ class StockPicking(models.Model):
         _logger.warning(f"Using fallback transit location: {transit_location.name}")
         return transit_location
 
+    def _check_tsout_stock_available(self):
+        """TSOUT tidak boleh divalidasi jika stok produk di source location
+        tidak cukup / tidak ada. Hanya produk storable yang dicek."""
+        self.ensure_one()
+        if self.env.context.get('skip_tsout_stock_check'):
+            return
+
+        required = {}
+        for move in self.move_ids_without_package:
+            product = move.product_id
+            if product.detailed_type != 'product' or move.state in ('cancel', 'done'):
+                continue
+            qty = move.quantity or move.product_uom_qty
+            qty = move.product_uom._compute_quantity(qty, product.uom_id)
+            key = (product, move.location_id)
+            required[key] = required.get(key, 0.0) + qty
+
+        errors = []
+        for (product, location), qty in required.items():
+            available = product.with_context(location=location.id).qty_available
+            if float_compare(available, qty, precision_rounding=product.uom_id.rounding) < 0:
+                errors.append(
+                    f"- {product.display_name}: dibutuhkan {qty:g} {product.uom_id.name}, "
+                    f"stok di {location.display_name} hanya {available:g}"
+                )
+        if errors:
+            raise UserError(
+                "TSOUT tidak dapat divalidasi karena stok tidak mencukupi:\n\n"
+                + "\n".join(errors)
+            )
+
     def button_validate(self):
         # =====================================================
         # VALIDASI ALLOWED WAREHOUSE
@@ -244,6 +300,8 @@ class StockPicking(models.Model):
 
             if is_tsout:
                 _logger.info("=== TSOUT Detected ===")
+
+                picking._check_tsout_stock_available()
 
                 if not picking.target_location:
                     raise UserError("Target Location harus diisi sebelum memvalidasi TSOUT.")

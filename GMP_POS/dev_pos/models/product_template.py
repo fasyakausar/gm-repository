@@ -41,6 +41,7 @@ class ProductTemplate(models.Model):
     gm_sub_category = fields.Char(string="Sub Category", tracking=True)
     gm_class = fields.Char(string="Class", tracking=True)
     gm_manufacturer = fields.Char(string="Manufacturer", tracking=True)
+    old_item = fields.Char(string="Old Item", tracking=True, index=True)
 
     # ==== OVERRIDE ====
     def _check_barcode_uniqueness(self):
@@ -187,7 +188,14 @@ class ProductProductInherit(models.Model):
     gm_is_dp_payment = fields.Boolean(string="Is DP Payment?", help="This is a Down Payment Payment product")
     gm_is_pelunasan = fields.Boolean(string="Is DP Pelunasan?", help="This is a Down Payment Pelunasan product (will not appear on receipt)")
     gm_is_rounding = fields.Boolean(string="Is Rounding Product?", help="This is a Rounding Adjustment product (will not appear on receipt)")
-
+    old_item = fields.Char(
+        string="Old Item",
+        related='product_tmpl_id.old_item',
+        store=True,
+        readonly=False,
+        index=True,
+    )
+    
     def _check_barcode_uniqueness(self):
         return True
 

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        View di bawah ini HANYA diterapkan untuk user di group
+        custom_receipts_for_pos.group_admin_menu_access (groups_id).
+        Priority-nya lebih besar dari view pembatas, sehingga dijalankan
+        sesudahnya dan mengembalikan options bawaan Odoo
+        (Create / Create and edit muncul lagi).
+    -->
+
+    <!-- SALE ORDER LINE -->
+    <record id="view_sale_order_form_admin_menu_access_allow_create" model="ir.ui.view">
+        <field name="name">sale.order.form.admin.menu.access.allow.create</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="priority">220</field>
+        <field name="groups_id" eval="[(4, ref('custom_receipts_for_pos.group_admin_menu_access'))]"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='order_line']/tree/field[@name='product_id']" position="attributes">
+                <attribute name="options">{'no_open': True}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/tree/field[@name='product_template_id']" position="attributes">
+                <attribute name="options">{'no_open': True}</attribute>
+            </xpath>
+            <xpath expr="//field[@name='order_line']/form//field[@name='product_id']" position="attributes">
+                <attribute name="options">{}</attribute>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- STOCK MOVE (Operations di Transfer) -->
+    <record id="view_stock_picking_form_admin_menu_access_allow_create" model="ir.ui.view">
+        <field name="name">stock.picking.form.admin.menu.access.allow.create</field>
+        <field name="model">stock.picking</field>
+        <field name="inherit_id" ref="stock.view_picking_form"/>
+        <field name="priority">100</field>
+        <field name="groups_id" eval="[(4, ref('custom_receipts_for_pos.group_admin_menu_access'))]"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='move_ids_without_package']/tree/field[@name='product_id']" position="attributes">
+                <attribute name="options">{}</attribute>
+            </xpath>
+        </field>
+    </record>
+</odoo>

@@ -202,6 +202,7 @@
                                     <tree editable="bottom">
                                         <field name="product_id" required="1" width="200"/>
                                         <field name="product_name" readonly="1" width="300"/>
+                                        <field name="old_item" readonly="1" width="150"/>
                                         <field name="jumlah_copy" width="100"/>
                                         <field name="harga_jual" width="150"/>
                                         <field name="tanggal_masuk" width="150"/>

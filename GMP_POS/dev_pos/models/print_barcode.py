@@ -912,11 +912,12 @@ class PrintBarcode(models.Model):
 
             return [line1, line2]
 
-        name_lines = split_to_lines(product.name, font_name, font_size, max_text_width)
-
-        for i, line_text in enumerate(name_lines):
-            line_y = y_pos + label_height - (self.posisi_nama_barang * mm) - (i * line_height)
-            canvas_obj.drawCentredString(center_x, line_y, line_text)
+        label_text = (product.old_item or '').strip()
+        if label_text:
+            name_lines = split_to_lines(label_text, font_name, font_size, max_text_width)
+            for i, line_text in enumerate(name_lines):
+                line_y = y_pos + label_height - (self.posisi_nama_barang * mm) - (i * line_height)
+                canvas_obj.drawCentredString(center_x, line_y, line_text)
 
         # =====================================================================
         # BARCODE
@@ -998,6 +999,7 @@ class PrintBarcodeProductLine(models.Model):
     barcode_id = fields.Many2one('print.barcode', string='Barcode Print', ondelete='cascade')
     product_id = fields.Many2one('product.product', string='Product')
     product_name = fields.Char(string='Product Name', related='product_id.name', readonly=True)
+    old_item = fields.Char(string='Old Item', related='product_id.old_item', readonly=True)
     jumlah_copy = fields.Float(string="Jumlah Copy", default=1.0)
     harga_jual = fields.Float(string="Harga Jual", related='product_id.list_price', readonly=True)
     tanggal_masuk = fields.Date(string="Tanggal Masuk")

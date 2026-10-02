@@ -12,6 +12,11 @@
                 <field name="category_id" ref="base.module_category_hidden"/>
         </record>
 
+        <record id="group_hide_button_cancel" model="res.groups">
+            <field name="name">Hide Button Cancel Transfer</field>
+            <field name="comment">Anggota grup ini tidak dapat melihat tombol Cancel di form Transfer (Inventory).</field>
+        </record>
+
         <!-- Record rule untuk group Sales dan Kasir: hanya lihat customer -->
         <record id="res_partner_customer_only_rule" model="ir.rule">
             <field name="name">Partner: Only Customer for Sales and Kasir</field>

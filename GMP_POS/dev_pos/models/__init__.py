@@ -61,3 +61,4 @@ from . import mapping_tax_sap
 # from . import res_users
 from . import report_inv_rounding
 from . import stock_move_line
+from . import product_block_create
